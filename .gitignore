@@ -1,0 +1,45 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Project specific files
+user_uploads/*
+instance
+
+# Virtual environments
+.venv/
+venv/
+
+# macOS system files
+.DS_Store
+
+# Editor directories
+.idea
+.vscode
+
+# Log files
+*.log
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Compiled static assets
+static/css/dist/
+
+# Environment variable or secret files
+.env
+.env.*
+
+# Python egg and package metadata
+*.egg-info/
+*.egg
+dist/
+build/
+
+.parcel-cache/

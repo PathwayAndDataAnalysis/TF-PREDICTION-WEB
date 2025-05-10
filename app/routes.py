@@ -1,0 +1,639 @@
+import os
+import shutil  # For deleting analysis directories
+import uuid  # For unique analysis IDs
+from datetime import datetime  # For timestamps
+
+import pandas as pd
+from flask import (
+    Blueprint,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    flash,
+    current_app,
+    jsonify,
+)
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+from flask_login import login_user, logout_user, login_required, current_user
+
+# Import User model and data helpers from app.__init__
+from . import User, get_all_users_data, save_all_users_data
+
+# Create Blueprints
+auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
+main_bp = Blueprint("main_routes", __name__)  # No prefix for main app routes like index
+
+
+# --- Helper functions (get_user_specific_data_path, allowed_file as before) ---
+def get_user_specific_data_path(username):
+    """Returns the path to a user's dedicated data directory."""
+    # current_app.config['UPLOAD_FOLDER'] is the root for all user uploads
+    base_upload_folder = current_app.config["UPLOAD_FOLDER"]
+    # Sanitize username for directory creation, though secure_filename is usually for files
+    safe_username_dir = secure_filename(username)  # Ensures username is safe for path
+    path = os.path.join(base_upload_folder, safe_username_dir)
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as e:
+        current_app.logger.error(f"Could not create user data path {path}: {e}")
+        return None  # Indicate failure
+    return path
+
+
+def get_user_analysis_path(username, analysis_id):
+    """Returns the path to a specific analysis directory for a user."""
+    user_data_path = get_user_specific_data_path(username)
+    if not user_data_path:
+        return None
+    analysis_base_dir_name = "analyses"  # Name of the subfolder for all analyses
+    analysis_path = os.path.join(
+        user_data_path, analysis_base_dir_name, secure_filename(analysis_id)
+    )
+    try:
+        os.makedirs(analysis_path, exist_ok=True)  # Create if it doesn't exist
+    except OSError as e:
+        current_app.logger.error(f"Could not create analysis path {analysis_path}: {e}")
+        return None
+    return analysis_path
+
+
+def allowed_file(filename):
+    return (
+        "." in filename
+        and filename.rsplit(".", 1)[1].lower()
+        in current_app.config["ALLOWED_EXTENSIONS"]
+    )
+
+
+# --- Jinja Filter for Datetime Formatting ---
+@main_bp.app_template_filter()
+def format_datetime(value, format="%Y-%m-%d %H:%M"):
+    """Formats a datetime string or object."""
+    if isinstance(value, str):
+        try:
+            # Attempt to parse if it's a common ISO format string
+            dt_obj = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return dt_obj.strftime(format)
+        except ValueError:
+            return value  # Return original if parsing fails
+    if isinstance(value, datetime):
+        return value.strftime(format)
+    return value
+
+
+# --- Main Routes (index, data operations) ---
+@main_bp.route("/")
+def index():
+    if not current_user.is_authenticated:
+        return redirect(url_for("auth.login"))
+
+    all_users_data = get_all_users_data()
+    current_user_node = all_users_data.get(current_user.id, {})
+    user_files_info = current_user_node.get("files", [])
+    user_analyses = current_user_node.get("analyses", [])
+    # Sort analyses by creation date, newest first (optional)
+    user_analyses_sorted = sorted(
+        user_analyses, key=lambda x: x.get("created_at", ""), reverse=True
+    )
+
+    return render_template(
+        "index.html",
+        user_files=user_files_info,
+        current_user_analyses=user_analyses_sorted,
+    )  # Pass analyses to the template
+
+
+@main_bp.route("/upload_data", methods=["POST"])
+@login_required
+def upload_data():
+    if "data_file" not in request.files:
+        flash("No file part in the request.", "error")
+        return redirect(url_for("main_routes.index"))
+
+    file = request.files["data_file"]
+    description = request.form.get("description", "").strip()
+
+    if file.filename == "":
+        flash("No file selected for upload.", "error")
+        return redirect(url_for("main_routes.index"))
+
+    if file and allowed_file(file.filename):
+        original_filename = file.filename
+        filename = secure_filename(original_filename)  # Sanitize filename
+
+        user_data_storage_path = get_user_specific_data_path(current_user.id)
+        if not user_data_storage_path:
+            flash("Could not access user storage directory.", "error")
+            return redirect(url_for("main_routes.index"))
+
+        destination_file_path = os.path.join(user_data_storage_path, filename)
+
+        all_users_data = get_all_users_data()
+        # Ensure user exists in data; should always be true for logged-in user
+        if current_user.id not in all_users_data:
+            all_users_data[current_user.id] = {
+                "password": "HASH_PLACEHOLDER",
+                "files": [],
+            }  # This should not happen
+
+        user_files_list = all_users_data[current_user.id].get("files", [])
+
+        if any(f["filename"] == filename for f in user_files_list):
+            flash(
+                f'File "{filename}" already exists. Please rename or delete the existing file.',
+                "warning",
+            )
+            return redirect(url_for("main_routes.index"))
+
+        try:
+            file.save(destination_file_path)
+            # Store info about the file
+            user_files_list.append(
+                {
+                    "filename": filename,  # The secured filename
+                    "original_filename": original_filename,  # Keep original for display if needed
+                    "description": description,
+                    "path": destination_file_path,  # Store the full path for easier deletion
+                }
+            )
+            all_users_data[current_user.id]["files"] = user_files_list
+            save_all_users_data(all_users_data)
+            flash(
+                f'File "{original_filename}" uploaded successfully as "{filename}"!',
+                "success",
+            )
+        except Exception as e:
+            current_app.logger.error(
+                f"Error saving file {filename} for user {current_user.id}: {e}"
+            )
+            flash(f"An error occurred during file upload: {e}", "error")
+            # Clean up if file was partially saved (optional, complex)
+            if os.path.exists(destination_file_path):
+                try:
+                    os.remove(destination_file_path)
+                except OSError:
+                    pass  # Log this too
+    else:
+        flash(
+            f'File type not allowed or file error. Allowed: {", ".join(current_app.config["ALLOWED_EXTENSIONS"])}',
+            "error",
+        )
+
+    return redirect(url_for("main_routes.index"))
+
+
+@main_bp.route("/delete_data/<filename>", methods=["POST"])
+@login_required
+def delete_data(filename):
+    # The filename from the URL is the one stored (already secured)
+    secured_filename_to_delete = secure_filename(filename)  # Re-secure to be safe
+
+    all_users_data = get_all_users_data()
+    current_user_data = all_users_data.get(current_user.id)
+
+    if not current_user_data:
+        flash("User data not found.", "error")
+        return redirect(url_for("main_routes.index"))
+
+    user_files_list = current_user_data.get("files", [])
+    file_info_to_delete = None
+
+    for f_info in user_files_list:
+        if f_info.get("filename") == secured_filename_to_delete:
+            file_info_to_delete = f_info
+            break
+
+    if file_info_to_delete:
+        # Use the stored 'path' for deletion
+        file_path_on_disk = file_info_to_delete.get("path")
+
+        if not file_path_on_disk:
+            # Fallback: construct path if 'path' wasn't stored (older data format?)
+            user_data_storage_path = get_user_specific_data_path(current_user.id)
+            if user_data_storage_path:
+                file_path_on_disk = os.path.join(
+                    user_data_storage_path, secured_filename_to_delete
+                )
+            else:
+                flash(
+                    f'Could not determine path for "{secured_filename_to_delete}". Deletion failed.',
+                    "error",
+                )
+                return redirect(url_for("main_routes.index"))
+
+        try:
+            if os.path.exists(file_path_on_disk):
+                os.remove(file_path_on_disk)
+                current_app.logger.info(
+                    f"Deleted file {file_path_on_disk} for user {current_user.id}"
+                )
+            else:
+                current_app.logger.warning(
+                    f"File {file_path_on_disk} not found on disk for deletion for user {current_user.id}."
+                )
+                # Still remove from records if not on disk, or flash a specific error
+
+            # Remove from users.json records
+            user_files_list.remove(file_info_to_delete)
+            all_users_data[current_user.id]["files"] = user_files_list
+            save_all_users_data(all_users_data)
+            flash(
+                f'File "{file_info_to_delete.get("original_filename", secured_filename_to_delete)}" deleted successfully.',
+                "success",
+            )
+        except OSError as e:
+            current_app.logger.error(
+                f'Error deleting file "{secured_filename_to_delete}" from disk: {e}'
+            )
+            flash(f"Error deleting file from disk: {e}", "error")
+    else:
+        flash(f'File record for "{secured_filename_to_delete}" not found.', "error")
+
+    return redirect(url_for("main_routes.index"))
+
+
+# --- Analysis Routes ---
+@main_bp.route("/analysis/create", methods=["GET"])
+@login_required
+def create_analysis_page():
+    all_users_data = get_all_users_data()
+    user_files = all_users_data.get(current_user.id, {}).get("files", [])
+    return render_template("create_analysis.html", user_files=user_files)
+
+
+@main_bp.route("/analysis/create", methods=["POST"])
+@login_required
+def create_analysis():
+    current_app.logger.info(f"Create analysis form data: {request.form}")
+    analysis_name = request.form.get("analysis_name", "").strip()
+
+    # Gene Expression Data
+    have_h5ad = request.form.get("have_h5ad") == "on"
+    selected_h5ad_file = request.form.get("selected_h5ad_file")
+    raw_counts_file = request.form.get("raw_counts_file")
+    metadata_file = request.form.get("metadata_file")
+
+    # 2D Layout Data
+    have_2d_layout = request.form.get("have_2d_layout") == "on"
+    layout_file = request.form.get("layout_file")
+
+    # UMAP Parameters (only relevant if not have_2d_layout)
+    umap_parameters = None
+    if not have_2d_layout:
+        try:
+            umap_parameters = {
+                "filter_cells": request.form.get("filter_cells") == "on",
+                "filter_cells_value": request.form.get(
+                    "filter_cells_value", default=200, type=int
+                ),
+                "filter_genes": request.form.get("filter_genes") == "on",
+                "filter_genes_value": request.form.get(
+                    "filter_genes_value", default=20, type=int
+                ),
+                "qc_filter": request.form.get("qc_filter") == "on",
+                "qc_filter_value": request.form.get(
+                    "qc_filter_value", default=10, type=int
+                ),
+                "data_normalize": request.form.get("data_normalize") == "on",
+                "data_normalize_value": request.form.get(
+                    "data_normalize_value", default=10000, type=int
+                ),
+                "log_transform": request.form.get("log_transform") == "on",
+                "pca_components": request.form.get(
+                    "pca_components", default=10, type=int
+                ),
+                "n_neighbors": request.form.get("n_neighbors", default=15, type=int),
+                "min_dist": request.form.get("min_dist", default=0.1, type=float),
+                "metric": request.form.get("metric", default="euclidean"),
+            }
+        except ValueError as e:
+            current_app.logger.error(f"Error parsing UMAP parameters: {e}")
+            flash(
+                "Invalid UMAP parameter value provided. Please check numeric inputs.",
+                "error",
+            )
+            return redirect(url_for("main_routes.create_analysis_page"))
+
+    # Other general file selections
+    # top_general_selected_files = request.form.getlist("selected_files")
+
+    # --- Validation ---
+    if not analysis_name:
+        flash("Analysis name is required.", "error")
+        return redirect(url_for("main_routes.create_analysis_page"))
+
+    # Gene Expression File Validation
+    if have_h5ad:
+        if not selected_h5ad_file:
+            flash("Please select a .h5ad file.", "error")
+            return redirect(url_for("main_routes.create_analysis_page"))
+    else:  # User does not have .h5ad, so raw_counts and metadata are required
+        if not raw_counts_file:
+            flash("Please select a raw counts file.", "error")
+            return redirect(url_for("main_routes.create_analysis_page"))
+        if not metadata_file:
+            flash("Please select a metadata file.", "error")
+            return redirect(url_for("main_routes.create_analysis_page"))
+
+    # 2D Layout File Validation
+    if have_2d_layout:
+        if not layout_file:
+            flash("Please select a 2D layout file.", "error")
+            return redirect(url_for("main_routes.create_analysis_page"))
+    # else: # User wants to generate UMAP
+    # Potentially add validation for UMAP parameters here if needed
+    # For example, ensuring pca_components >= 2, n_neighbors >= 1 etc.
+    # if umap_parameters:
+    #     if umap_parameters["pca_components"] < 2:
+    #         flash("Number of PCA components must be at least 2.", "error")
+    #         return redirect(url_for("main_routes.create_analysis_page"))
+    #     if umap_parameters["n_neighbors"] < 1:
+    #         flash("Number of UMAP neighbors must be at least 1.", "error")
+    #         return redirect(url_for("main_routes.create_analysis_page"))
+
+    all_users_data = get_all_users_data()
+    current_user_node = all_users_data.setdefault(
+        current_user.id, {"password": "HASH_PLACEHOLDER", "files": [], "analyses": []}
+    )
+
+    if "analyses" not in current_user_node:
+        current_user_node["analyses"] = []
+
+    analysis_id = str(uuid.uuid4())
+    analysis_data_path = get_user_analysis_path(current_user.id, analysis_id)
+
+    if not analysis_data_path:
+        flash("Could not create storage for analysis. Please try again.", "error")
+        return redirect(url_for("main_routes.create_analysis_page"))
+
+    new_analysis = {
+        "id": analysis_id,
+        "name": analysis_name,
+        "status": "Pending",
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "results_path": analysis_data_path,
+        "inputs": {
+            "gene_expression": {
+                "source": "h5ad" if have_h5ad else "separate_files",
+                "h5ad_filename": selected_h5ad_file if have_h5ad else None,
+                "counts_filename": raw_counts_file if not have_h5ad else None,
+                "metadata_filename": metadata_file if not have_h5ad else None,
+            },
+            "layout": {
+                "source": "file" if have_2d_layout else "generate_umap",
+                "layout_filename": layout_file if have_2d_layout else None,
+                "umap_settings": umap_parameters if not have_2d_layout else None,
+            },
+            # "general_selected_files": top_general_selected_files # if using this
+        },
+    }
+
+    current_user_node["analyses"].append(new_analysis)
+    save_all_users_data(all_users_data)
+
+    flash(f'Analysis "{analysis_name}" created successfully and is pending.', "success")
+    return redirect(url_for("main_routes.index"))
+
+
+@main_bp.route("/analysis/<analysis_id>")
+@login_required
+def view_analysis(analysis_id):
+    all_users_data = get_all_users_data()
+    user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
+
+    analysis_to_view = next((a for a in user_analyses if a["id"] == analysis_id), None)
+
+    if not analysis_to_view:
+        flash("Analysis not found.", "error")
+        return redirect(url_for("main_routes.index"))
+
+    # Render the view_analysis.html template with the analysis data
+    return render_template("view_analysis.html", analysis=analysis_to_view)
+
+
+# Define constants for column names for robustness and easier refactoring
+CLUSTER_COL = "Cluster"
+UMAP1_COL = "X_umap1"
+UMAP2_COL = "X_umap2"
+
+
+@main_bp.route("/analysis/umap_plot/<analysis_id>", methods=["GET"])
+@login_required
+def get_umap_plot(analysis_id):
+    analysis_path = get_user_analysis_path(current_user.id, analysis_id)
+    if not analysis_path:
+        return {"error": "Analysis not found or access denied."}, 404
+
+    # Path to the UMAP coordinates file
+    umap_file_path = os.path.join(analysis_path, "umap_coordinates.csv")
+    if not os.path.exists(umap_file_path):
+        return {"error": "UMAP coordinates file not found."}, 404
+
+    # Read the UMAP coordinates file
+    try:
+        umap_df = pd.read_csv(umap_file_path, index_col=0)
+
+        # Validate required columns
+        required_columns = {CLUSTER_COL, UMAP1_COL, UMAP2_COL}
+        if not required_columns.issubset(umap_df.columns):
+            missing_cols = required_columns - set(umap_df.columns)
+            error_msg = (
+                f"UMAP file missing required columns: {', '.join(missing_cols)}."
+            )
+            current_app.logger.error(f"{error_msg} File: {umap_file_path}")
+            return jsonify({"error": error_msg}), 400  # Bad Request
+
+        # create a list dictionary of clusters with coordinates
+        traces = []
+        # Group by cluster and create a trace for each
+        for cluster_label, group_df in umap_df.groupby(CLUSTER_COL):
+            traces.append(
+                {
+                    "cluster": str(cluster_label),
+                    "x": group_df[UMAP1_COL].tolist(),
+                    "y": group_df[UMAP2_COL].tolist(),
+                    "mode": "markers",
+                    "type": "scatter",
+                    "name": str(cluster_label),
+                    "size": 6,
+                    "opacity": 0.5,
+                }
+            )
+
+        layout = {
+            "title": "UMAP Plot",
+            "xaxis": {"title": "UMAP1"},
+            "yaxis": {"title": "UMAP2"},
+            "hovermode": "closest",
+        }
+
+        graph_data = {"data": traces, "layout": layout}
+        return jsonify(graph_data), 200
+
+    except pd.errors.EmptyDataError:
+        current_app.logger.error(f"UMAP file is empty: {umap_file_path}")
+        return jsonify({"error": "UMAP coordinates file is empty."}), 500
+    except pd.errors.ParserError as e:
+        current_app.logger.error(
+            f"Error parsing UMAP file: {umap_file_path}. Details: {e}"
+        )
+        return (
+            jsonify(
+                {"error": "Failed to parse UMAP coordinates file. Invalid format."}
+            ),
+            500,
+        )
+    except KeyError as e:  # Should be caught by column validation, but as a safeguard
+        current_app.logger.error(
+            f"Missing expected column in UMAP file: {e}. File: {umap_file_path}",
+            exc_info=True,
+        )
+        return jsonify({"error": f"Data processing error: Missing column {e}."}), 500
+    except Exception as e:
+        # Log the full traceback for unexpected errors
+        current_app.logger.error(
+            f"Unexpected error processing UMAP file for analysis_id '{analysis_id}': {e}",
+            exc_info=True,
+        )
+        return (
+            jsonify(
+                {
+                    "error": "An unexpected error occurred while generating the UMAP plot."
+                }
+            ),
+            500,
+        )
+
+
+@main_bp.route("/analysis/delete/<analysis_id>", methods=["POST"])
+@login_required
+def delete_analysis(analysis_id):
+    all_users_data = get_all_users_data()
+    current_user_node = all_users_data.get(current_user.id)
+
+    if not current_user_node or "analyses" not in current_user_node:
+        flash("No analyses found for this user.", "error")
+        return redirect(url_for("main_routes.index"))
+
+    analysis_to_delete = None
+    analysis_index = -1
+    for i, analysis in enumerate(current_user_node["analyses"]):
+        if analysis["id"] == analysis_id:
+            analysis_to_delete = analysis
+            analysis_index = i
+            break
+
+    if analysis_to_delete:
+        # Attempt to delete the analysis directory from filesystem
+        analysis_data_path = analysis_to_delete.get("results_path")
+        if analysis_data_path and os.path.exists(analysis_data_path):
+            try:
+                shutil.rmtree(
+                    analysis_data_path
+                )  # Deletes the directory and all its contents
+                current_app.logger.info(
+                    f"Deleted analysis directory: {analysis_data_path}"
+                )
+            except OSError as e:
+                current_app.logger.error(
+                    f"Error deleting analysis directory {analysis_data_path}: {e}"
+                )
+                flash(
+                    f"Error deleting analysis files from disk: {e}. Record removed.",
+                    "warning",
+                )
+
+        # Remove the analysis record from users.json
+        current_user_node["analyses"].pop(analysis_index)
+        save_all_users_data(all_users_data)
+        flash(
+            f'Analysis "{analysis_to_delete["name"]}" deleted successfully.', "success"
+        )
+    else:
+        flash("Analysis not found or already deleted.", "error")
+
+    return redirect(url_for("main_routes.index"))
+
+
+# --- Auth Routes (login, signup, logout) ---
+@auth_bp.route("/signup", methods=["GET", "POST"])
+def signup():
+    if current_user.is_authenticated:
+        return redirect(url_for("main_routes.index"))
+
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password")
+        confirm_password = request.form.get("confirm_password")
+
+        if not username or not password or not confirm_password:
+            flash("All fields are required.", "error")
+            return render_template("signup.html")  # Re-render form with error
+
+        if " " in username:  # Example validation
+            flash("Username cannot contain spaces.", "error")
+            return render_template("signup.html")
+
+        if password != confirm_password:
+            flash("Passwords do not match.", "error")
+            return render_template("signup.html")
+
+        all_users_data = get_all_users_data()
+        if username in all_users_data:
+            flash("Username already exists. Please choose a different one.", "error")
+            return render_template("signup.html")
+
+        hashed_password = generate_password_hash(password)
+        all_users_data[username] = {
+            "password": hashed_password,
+            "files": [],
+            "analyses": [],
+        }
+        save_all_users_data(all_users_data)
+        get_user_specific_data_path(username)
+
+        flash("Account created successfully! Please login.", "success")
+        return redirect(url_for("auth.login"))
+
+    return render_template("signup.html")
+
+
+@auth_bp.route("/login", methods=["GET", "POST"])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("main_routes.index"))
+
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password")
+
+        if not username or not password:
+            flash("Both username and password are required.", "error")
+            return render_template("login.html")
+
+        all_users_data = get_all_users_data()
+        user_account_data = all_users_data.get(username)
+
+        if user_account_data and check_password_hash(
+            user_account_data.get("password", ""), password
+        ):
+            user_obj = User(username)  # Create User instance
+            login_user(user_obj)  # Flask-Login handles session
+            flash("Logged in successfully!", "success")
+            next_page = request.args.get("next")
+            return redirect(next_page or url_for("main_routes.index"))
+        else:
+            flash("Invalid username or password.", "error")
+            return render_template("login.html")
+
+    return render_template("login.html")
+
+
+@auth_bp.route("/logout")
+@login_required  # Ensure user is logged in to log out
+def logout():
+    logout_user()  # Clears user session
+    flash("You have been logged out.", "info")
+    return redirect(url_for("auth.login"))

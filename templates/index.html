@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block title %}TF-Activity Prediction{% endblock %}
+
+{% block content %}
+<h1 class="text-3xl font-bold text-gray-800 mb-8">Welcome! <span class="text-blue-600">{{ current_user.id }}</span>!
+</h1>
+
+<div class="grid md:grid-cols-2 gap-8">
+    <!-- Upload New Data Section -->
+    <div class="bg-white p-6 rounded-lg shadow-lg">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4 border-b pb-2">Upload New Data</h2>
+        <form method="POST" action="{{ url_for('main_routes.upload_data') }}" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+
+            <div class="mb-4">
+                <label for="data_file" class="block text-gray-700 text-sm font-bold mb-2">Choose a file:</label>
+                <input type="file" id="data_file" name="data_file" required
+                    class="block w-full text-sm text-gray-500
+                                  file:mr-4 file:py-2 file:px-4
+                                  file:rounded-md file:border-0
+                                  file:text-sm file:font-semibold
+                                  file:bg-blue-50 file:text-blue-700
+                                  hover:file:bg-blue-100
+                                  border border-gray-300 rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <p class="text-xs text-gray-500 mt-1">Allowed types: .h5ad, .txt, .csv, .tsv, etc.</p>
+            </div>
+
+            <div class="mb-6">
+                <label for="description" class="block text-gray-700 text-sm font-bold mb-2">Description
+                    (optional):</label>
+                <textarea id="description" name="description" rows="3"
+                    class="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
+            </div>
+
+            <input type="submit" value="Upload Data"
+                class="w-full bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline cursor-pointer transition duration-150 ease-in-out">
+        </form>
+    </div>
+
+    <!-- Uploaded Files Section -->
+    <div class="bg-white p-6 rounded-lg shadow-lg">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4 border-b pb-2">Your Uploaded Files</h2>
+        {% if user_files %}
+        <ul class="space-y-3">
+            {% for file_info in user_files %}
+            <li
+                class="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200">
+                <div>
+                    <p class="font-medium text-gray-800">{{ file_info.filename }}</p>
+                    {% if file_info.description %}
+                    <p class="text-sm text-gray-600">{{ file_info.description }}</p>
+                    {% endif %}
+                </div>
+                <form method="POST" action="{{ url_for('main_routes.delete_data', filename=file_info.filename) }}"
+                    style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                    <button type="submit"
+                        onclick="return confirm('Are you sure you want to delete {{ file_info.filename }}?');"
+                        class="bg-red-500 hover:bg-red-700 text-white text-xs font-semibold py-2 px-3 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">
+                        Delete
+                    </button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-center py-6">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-gray-400 mb-2" fill="none"
+                viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.91 15.91L18 18M8.09 15.91L6 18M12 18v-2">
+                </path>
+            </svg>
+            <p class="text-gray-500">No files uploaded yet.</p>
+            <p class="text-sm text-gray-400 mt-1">Use the form on the left to upload your first dataset.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Analysis Section -->
+<div class="mt-12 bg-white p-6 rounded-lg shadow-lg"> {# Increased top margin #}
+    <div class="flex justify-between items-center mb-4 border-b pb-2">
+        <h2 class="text-xl font-semibold text-gray-700">Your Analyses</h2>
+        <a href="{{ url_for('main_routes.create_analysis_page') }}"
+            class="bg-indigo-500 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out text-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block mr-1 -mt-0.5" fill="none"
+                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path>
+            </svg>
+            Create New Analysis
+        </a>
+    </div>
+
+    {% if current_user_analyses %} {# Pass this from the route #}
+    <ul class="space-y-3">
+        {% for analysis in current_user_analyses %}
+        <li
+            class="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200">
+            <div>
+                <p class="font-medium text-gray-800">{{ analysis.name }}</p>
+                <p class="text-sm text-gray-500">
+                    Status: <span class="font-semibold
+                                {% if analysis.status == 'Completed' %} text-green-600
+                                {% elif analysis.status == 'Failed' %} text-red-600
+                                {% elif analysis.status == 'Running' %} text-blue-600
+                                {% else %} text-yellow-600 {% endif %}">
+                        {{ analysis.status }}</span>
+                </p>
+                <p class="text-xs text-gray-400">Created: {{ analysis.created_at | format_datetime }}</p>
+                {# Requires a datetime filter #}
+            </div>
+            <div>
+                <a href="{{ url_for('main_routes.view_analysis', analysis_id=analysis.id) }}"
+                    class="bg-blue-500 hover:bg-blue-700 text-white text-xs font-semibold py-2 px-3 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out mr-2">
+                    View
+                </a>
+                <!-- Optional: Delete Analysis Button -->
+                <form method="POST" action="{{ url_for('main_routes.delete_analysis', analysis_id=analysis.id) }}"
+                    style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                    <button type="submit"
+                        onclick="return confirm('Are you sure you want to delete the analysis: {{ analysis.name }}? This action cannot be undone.');"
+                        class="bg-red-500 hover:bg-red-700 text-white text-xs font-semibold py-2 px-3 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">
+                        Delete
+                    </button>
+                </form>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <div class="text-center py-6">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-gray-400 mb-2" fill="none"
+            viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round"
+                d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+            </path>
+        </svg>
+        <p class="text-gray-500">No analyses started yet.</p>
+        <p class="text-sm text-gray-400 mt-1">Click "Create New Analysis" to begin.</p>
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}

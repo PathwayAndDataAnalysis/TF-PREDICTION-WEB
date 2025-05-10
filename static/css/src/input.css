@@ -1,0 +1,17 @@
+/* tf-pred-webserver/static/css/src/input.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply font-sans antialiased;
+}
+
+.flash-message-item {
+    transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+}
+.flash-message-item.fade-out {
+    opacity: 0;
+    /*transform: translateX(100%); !* Slides out to the right *!*/
+     transform: translateY(20px);
+}
