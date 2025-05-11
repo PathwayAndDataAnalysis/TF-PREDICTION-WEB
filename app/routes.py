@@ -19,11 +19,16 @@ from werkzeug.utils import secure_filename
 from flask_login import login_user, logout_user, login_required, current_user
 
 # Import User model and data helpers from app.__init__
-from . import User, get_all_users_data, save_all_users_data
+from . import User, get_all_users_data, save_all_users_data, find_analysis_by_id
 
 # Create Blueprints
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 main_bp = Blueprint("main_routes", __name__)  # No prefix for main app routes like index
+
+# Define constants for column names
+CLUSTER_COL = "Cluster"
+UMAP1_COL = "X_umap1"
+UMAP2_COL = "X_umap2"
 
 
 # --- Helper functions (get_user_specific_data_path, allowed_file as before) ---
@@ -286,11 +291,11 @@ def create_analysis():
             umap_parameters = {
                 "filter_cells": request.form.get("filter_cells") == "on",
                 "filter_cells_value": request.form.get(
-                    "filter_cells_value", default=200, type=int
+                    "filter_cells_value", default=500, type=int
                 ),
                 "filter_genes": request.form.get("filter_genes") == "on",
                 "filter_genes_value": request.form.get(
-                    "filter_genes_value", default=20, type=int
+                    "filter_genes_value", default=100, type=int
                 ),
                 "qc_filter": request.form.get("qc_filter") == "on",
                 "qc_filter_value": request.form.get(
@@ -302,7 +307,7 @@ def create_analysis():
                 ),
                 "log_transform": request.form.get("log_transform") == "on",
                 "pca_components": request.form.get(
-                    "pca_components", default=10, type=int
+                    "pca_components", default=20, type=int
                 ),
                 "n_neighbors": request.form.get("n_neighbors", default=15, type=int),
                 "min_dist": request.form.get("min_dist", default=0.1, type=float),
@@ -333,9 +338,9 @@ def create_analysis():
         if not raw_counts_file:
             flash("Please select a raw counts file.", "error")
             return redirect(url_for("main_routes.create_analysis_page"))
-        if not metadata_file:
-            flash("Please select a metadata file.", "error")
-            return redirect(url_for("main_routes.create_analysis_page"))
+        # if not metadata_file:
+        #     flash("Please select a metadata file.", "error")
+        #     return redirect(url_for("main_routes.create_analysis_page"))
 
     # 2D Layout File Validation
     if have_2d_layout:
@@ -403,7 +408,7 @@ def view_analysis(analysis_id):
     all_users_data = get_all_users_data()
     user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
 
-    analysis_to_view = next((a for a in user_analyses if a["id"] == analysis_id), None)
+    analysis_to_view = find_analysis_by_id(user_analyses, analysis_id)
 
     if not analysis_to_view:
         flash("Analysis not found.", "error")
@@ -413,41 +418,45 @@ def view_analysis(analysis_id):
     return render_template("view_analysis.html", analysis=analysis_to_view)
 
 
-# Define constants for column names for robustness and easier refactoring
-CLUSTER_COL = "Cluster"
-UMAP1_COL = "X_umap1"
-UMAP2_COL = "X_umap2"
-
-
 @main_bp.route("/analysis/umap_plot/<analysis_id>", methods=["GET"])
 @login_required
 def get_umap_plot(analysis_id):
-    analysis_path = get_user_analysis_path(current_user.id, analysis_id)
-    if not analysis_path:
-        return {"error": "Analysis not found or access denied."}, 404
+    all_users_data = get_all_users_data()
+    user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
+    analysis_to_view = find_analysis_by_id(user_analyses, analysis_id)
 
-    # Path to the UMAP coordinates file
-    umap_file_path = os.path.join(analysis_path, "umap_coordinates.csv")
-    if not os.path.exists(umap_file_path):
-        return {"error": "UMAP coordinates file not found."}, 404
+    if not analysis_to_view:
+        current_app.logger.info(f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'.")
+        flash("No layout file found for this analysis.", "error")
+        return redirect(url_for("main_routes.index"))
+
+    layout_file = analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filename")
+
+    # Find the path of layout file in files[]
+    user_files = all_users_data.get(current_user.id, {}).get("files", [])
+    layout_file_path = None
+    for file_info in user_files:
+        if file_info.get("filename") == layout_file:
+            layout_file_path = file_info.get("path")
+            break
+    if not layout_file_path:
+        flash("Layout file not found in user files.", "error")
+        return redirect(url_for("main_routes.index"))
 
     # Read the UMAP coordinates file
     try:
-        umap_df = pd.read_csv(umap_file_path, index_col=0)
-
-        # Validate required columns
+        umap_df = pd.read_csv(layout_file_path, index_col=0)
         required_columns = {CLUSTER_COL, UMAP1_COL, UMAP2_COL}
+
         if not required_columns.issubset(umap_df.columns):
             missing_cols = required_columns - set(umap_df.columns)
             error_msg = (
                 f"UMAP file missing required columns: {', '.join(missing_cols)}."
             )
-            current_app.logger.error(f"{error_msg} File: {umap_file_path}")
+            current_app.logger.error(f"{error_msg} File: {layout_file_path}")
             return jsonify({"error": error_msg}), 400  # Bad Request
 
-        # create a list dictionary of clusters with coordinates
         traces = []
-        # Group by cluster and create a trace for each
         for cluster_label, group_df in umap_df.groupby(CLUSTER_COL):
             traces.append(
                 {
@@ -473,11 +482,11 @@ def get_umap_plot(analysis_id):
         return jsonify(graph_data), 200
 
     except pd.errors.EmptyDataError:
-        current_app.logger.error(f"UMAP file is empty: {umap_file_path}")
+        current_app.logger.error(f"UMAP file is empty: {layout_file_path}")
         return jsonify({"error": "UMAP coordinates file is empty."}), 500
     except pd.errors.ParserError as e:
         current_app.logger.error(
-            f"Error parsing UMAP file: {umap_file_path}. Details: {e}"
+            f"Error parsing UMAP file: {layout_file_path}. Details: {e}"
         )
         return (
             jsonify(
@@ -485,24 +494,19 @@ def get_umap_plot(analysis_id):
             ),
             500,
         )
-    except KeyError as e:  # Should be caught by column validation, but as a safeguard
+    except KeyError as e:
         current_app.logger.error(
-            f"Missing expected column in UMAP file: {e}. File: {umap_file_path}",
+            f"Missing expected column in UMAP file: {e}. File: {layout_file_path}",
             exc_info=True,
         )
         return jsonify({"error": f"Data processing error: Missing column {e}."}), 500
     except Exception as e:
-        # Log the full traceback for unexpected errors
         current_app.logger.error(
             f"Unexpected error processing UMAP file for analysis_id '{analysis_id}': {e}",
             exc_info=True,
         )
         return (
-            jsonify(
-                {
-                    "error": "An unexpected error occurred while generating the UMAP plot."
-                }
-            ),
+            jsonify({"error": "An unexpected error occurred while generating the UMAP plot."}),
             500,
         )
 

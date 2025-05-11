@@ -73,10 +73,9 @@
 			</div>
 
 			<div id="separate_files_section" class="space-y-3">
-				<p class="text-sm text-gray-600 mb-2">If you don't have a .h5ad file, please provide:</p>
+				<p class="text-sm text-gray-600 mb-2">If you don't have an.h5ad file, please provide:</p>
 				<div>
-					<label for="raw_counts_file" class="block text-gray-700 text-sm font-bold mb-1">Select Raw Counts
-						File:</label>
+					<label for="raw_counts_file" class="block text-gray-700 text-sm font-bold mb-1">Select Raw Counts File:</label>
 					<select id="raw_counts_file" name="raw_counts_file"
 						class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
 						<option value="">-- Select a counts file --</option>
@@ -89,8 +88,7 @@
 					</select>
 				</div>
 				<div>
-					<label for="metadata_file" class="block text-gray-700 text-sm font-bold mb-1">Select Metadata
-						File:</label>
+					<label for="metadata_file" class="block text-gray-700 text-sm font-bold mb-1">Select Metadata File: (Optional)</label>
 					<select id="metadata_file" name="metadata_file"
 						class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
 						<option value="">-- Select a metadata file --</option>
@@ -143,7 +141,7 @@
 							class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
 						<label for="filter-cells" class="text-sm text-gray-700 mr-2">Filter cells expressed in less
 							than</label>
-						<input type="number" id="filter-cells-value" name="filter_cells_value" value="200" min="0"
+						<input type="number" id="filter-cells-value" name="filter_cells_value" value="500" min="0"
 							class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
 						<span class="text-sm text-gray-700 ml-2">genes</span>
 					</div>
@@ -153,7 +151,7 @@
 							class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
 						<label for="filter-genes" class="text-sm text-gray-700 mr-2">Filter genes expressed in less
 							than</label>
-						<input type="number" id="filter-genes-value" name="filter_genes_value" value="20" min="0"
+						<input type="number" id="filter-genes-value" name="filter_genes_value" value="100" min="0"
 							class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
 						<span class="text-sm text-gray-700 ml-2">cells</span>
 					</div>
@@ -161,8 +159,7 @@
 					<div class="mb-3 flex items-center">
 						<input type="checkbox" id="qc-filter" name="qc_filter" value="on" checked
 							class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-						<label for="qc-filter" class="text-sm text-gray-700 mr-2">Apply QC: Mitochondrial (MT) genes
-							&lt;</label>
+						<label for="qc-filter" class="text-sm text-gray-700 mr-2">Mitochondrial (MT) genes <</label>
 						<input type="number" id="qc-filter-value" name="qc_filter_value" value="10" min="0"
 							class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
 						<span class="text-sm text-gray-700 ml-2">%</span>
@@ -181,7 +178,7 @@
 					<div class="mb-3 flex items-center">
 						<input type="checkbox" id="log-transform" name="log_transform" value="on" checked
 							class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-						<label for="log-transform" class="text-sm text-gray-700">Apply Log1p transformation</label>
+                        <label for="log-transform" class="text-sm text-gray-700">Apply <span class="font-mono font-semibold bg-gray-200 rounded-md p-1">log1p</span> transformation</label>
 					</div>
 				</div>
 
@@ -190,7 +187,7 @@
 					<div class="mb-3">
 						<label for="pca_components" class="block text-sm text-gray-700 font-medium mb-1">Number of
 							Principal Components:</label>
-						<input type="number" name="pca_components" id="pca_components" value="10" min="2"
+						<input type="number" name="pca_components" id="pca_components" value="20" min="2"
 							class="w-full p-2 border border-gray-300 rounded-md text-sm" />
 					</div>
 				</div>
@@ -225,17 +222,6 @@
 			</div>
 		</div>
 
-		<!-- Add other analysis parameters here if needed -->
-		{#
-		<div class="mb-4">
-			#} {#
-			<label for="parameter_x" class="block text-gray-700 text-sm font-bold mb-2">Parameter X:</label>#} {#
-			<input type="text" id="parameter_x" name="parameter_x" #} {#
-				class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" />#}
-			{#
-		</div>
-		#}
-
 		<div class="flex items-center justify-start mt-6">
 			<input type="submit" value="Start Analysis"
 				class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline cursor-pointer"
@@ -267,7 +253,7 @@
 			h5adSelectionSection.style.display = "none";
 			separateFilesSection.style.display = "block";
 			rawCountsFile.required = true; // Or false, depending on your validation logic
-			metadataFile.required = true; // Or false
+			metadataFile.required = false; // Or false
 			// Clear or disable h5ad selection
 			const h5adRadios = document.getElementsByName("selected_h5ad_file");
 			for (let radio of h5adRadios) {

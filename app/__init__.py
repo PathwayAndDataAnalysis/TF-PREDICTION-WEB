@@ -44,6 +44,10 @@ def save_all_users_data(users_data):
     except IOError as e:
         current_app.logger.error(f"Error saving users to {get_users_file_path()}: {e}")
 
+def find_analysis_by_id(analyses, analysis_id):
+    """Finds an analysis by its ID in a list of analyses."""
+    return next((a for a in analyses if a.get("id") == analysis_id), None)
+
 @login_manager.user_loader
 def load_user(user_id):
     """Flask-Login hook to load a user by ID."""
