@@ -67,31 +67,55 @@ block content %}
 			<form id="plot-config-form" class="flex flex-col flex-grow">
 				<div>
 					<!-- Wrapper for form elements -->
+
+                    <div class="mb-4">
+						<label for="plot-type" class="block text-sm font-medium text-gray-700 mb-1">Plot type:</label>
+						<select
+							id="plot-type"
+							name="plot_type"
+							class="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        >
+                            <option value="umap_plot">UMAP</option>
+                            <option value="pca_plot">PCA</option>
+						</select>
+					</div>
+
 					<div class="mb-4">
-						<label for="color-by" class="block text-sm font-medium text-gray-700 mb-1"
-							>Color by:</label
-						>
+						<label for="color-by" class="block text-sm font-medium text-gray-700 mb-1">Color by:</label>
 						<select
 							id="color-by"
 							name="color_by"
 							class="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
 						>
-							<option value="louvain">Louvain Clusters</option>
-							<option value="gene_expression">Gene Expression</option>
-							<!-- Add more options as needed, e.g., metadata columns -->
+							<option value="select_cluster">---Select Cluster Type---</option>
+							<option value="metadata_columns">Metadata Columns</option>
+							<option value="tf_activity">TF Activity</option>
 						</select>
 					</div>
 
-					<div id="gene-selection-div" class="mb-4 hidden">
-						<label for="gene-name" class="block text-sm font-medium text-gray-700 mb-1"
-							>Gene Name:</label
+                    <div id="metadata-column-selection-div" class="mb-4 hidden">
+						<label for="metadata-column-name" class="block text-sm font-medium text-gray-700 mb-1"
+							>Metadata Column:</label
 						>
 						<input
 							type="text"
-							id="gene-name"
-							name="gene_name"
+							id="metadata-column-selection-name"
+							name="metadata-column-selection-name"
 							class="block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-							placeholder="Enter gene symbol"
+							placeholder="Enter metadata column name"
+						/>
+					</div>
+
+                    <div id="tf-selection-div" class="mb-4 hidden">
+						<label for="tf-name" class="block text-sm font-medium text-gray-700 mb-1"
+							>TF Name:</label
+						>
+						<input
+							type="text"
+							id="tf-name"
+							name="tf_name"
+							class="block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+							placeholder="Enter tf symbol"
 						/>
 					</div>
 
@@ -105,10 +129,10 @@ block content %}
 							name="point_size"
 							min="1"
 							max="10"
-							value="5"
+							value="4"
 							class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
 						/>
-						<span id="point-size-value" class="text-xs text-gray-500">5</span>
+						<span id="point-size-value" class="text-xs text-gray-500">4</span>
 					</div>
 
 					<div class="mb-4">
@@ -121,11 +145,11 @@ block content %}
 							name="opacity"
 							min="0.1"
 							max="1"
-							value="0.8"
+							value="0.5"
 							step="0.1"
 							class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
 						/>
-						<span id="opacity-value" class="text-xs text-gray-500">0.8</span>
+						<span id="opacity-value" class="text-xs text-gray-500">0.5</span>
 					</div>
 
 					<div class="mb-4">

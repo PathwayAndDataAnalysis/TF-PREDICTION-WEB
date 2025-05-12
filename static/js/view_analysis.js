@@ -3,22 +3,53 @@ console.log("Analysis object:", window.analysis);
 // Add view_analysis-specific JS here, e.g., Plotly rendering, form listeners, etc.
 
 // Plot configuration panel logic
+const plotTypeSelect = document.getElementById("plot-type");
 const colorBySelect = document.getElementById("color-by");
-const geneSelectionDiv = document.getElementById("gene-selection-div");
+const metadataColSelectionDiv = document.getElementById("metadata-column-selection-div");
+const tfSelectionDiv = document.getElementById("tf-selection-div");
 const pointSizeSlider = document.getElementById("point-size");
 const pointSizeValue = document.getElementById("point-size-value");
 const opacitySlider = document.getElementById("opacity");
 const opacityValue = document.getElementById("opacity-value");
 const showLegendCheckbox = document.getElementById("show-legend");
 
+plotTypeSelect.addEventListener("change", function () {
+	if (this.value === "umap_plot") {  // UMAP Plot
+		console.log("UMAP plot selected");
+		getPlotData(this.value)
+		.then(() => {
+			console.log("UMAP Plot loaded successfully.");
+		})
+		.catch((err) => {
+			console.error("Failed to load plot:", err);
+			alert("Failed to load plot. Please try again later.");
+		});
+	}
+	else {  // PCA Plot
+		console.log("PCA plot selected");
+		getPlotData(this.value)
+		.then(() => {
+			console.log("PCA Plot loaded successfully.");
+		})
+		.catch((err) => {
+			console.error("Failed to load plot:", err);
+			alert("Failed to load plot. Please try again later.");
+		});
+	}
+});
+
 if (colorBySelect) {
 	colorBySelect.addEventListener("change", function () {
-		if (geneSelectionDiv) {
-			if (this.value === "gene_expression") {
-				geneSelectionDiv.classList.remove("hidden");
-			} else {
-				geneSelectionDiv.classList.add("hidden");
-			}
+		if (this.value === "tf_activity") {
+			tfSelectionDiv.classList.remove("hidden");
+			metadataColSelectionDiv.classList.add("hidden");
+		} else if (this.value === "metadata_columns") {
+			tfSelectionDiv.classList.add("hidden");
+			metadataColSelectionDiv.classList.remove("hidden");
+		}
+		else {
+			tfSelectionDiv.classList.add("hidden");
+			metadataColSelectionDiv.classList.add("hidden");
 		}
 	});
 }
@@ -58,9 +89,13 @@ if (plotConfigForm) {
 }
 
 // UMAP plot loading and rendering
-async function getPlotData() {
+async function getPlotData(plot_type = "umap_plot") {
 	document.getElementById("plot-loading-spinner").style.display = "block";
-	const apiUrl = `/analysis/umap_plot/${window.analysis.id}`;
+
+	const apiUrl = plot_type === "umap_plot"
+	    ? `/analysis/umap_plot/${window.analysis.id}`
+	    : `/analysis/pca_plot/${window.analysis.id}`;
+
 	try {
 		const response = await fetch(apiUrl, {
 			method: "GET",
@@ -87,12 +122,6 @@ async function getPlotData() {
 			throw new Error(errorMessage);
 		}
 
-		// Scattergl for large data
-		if (data.data) {
-			data.data.forEach((trace) => {
-				trace.type = "scattergl";
-			});
-		}
 		if (data.data && data.layout) {
 			data.layout.dragmode = "pan"; // Set default to pan
 			data.layout.legend = {

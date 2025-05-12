@@ -492,9 +492,9 @@ def get_umap_plot(analysis_id):
                     "x": group_df[UMAP1_COL].tolist(),
                     "y": group_df[UMAP2_COL].tolist(),
                     "mode": "markers",
-                    "type": "scatter",
+                    "type": "scattergl",
                     "name": str(cluster_label),
-                    "size": 6,
+                    "size": 4,
                     "opacity": 0.5,
                 }
             )
@@ -541,6 +541,12 @@ def get_umap_plot(analysis_id):
             ),
             500,
         )
+
+
+@main_bp.route("/analysis/pca_plot/<analysis_id>", methods=["GET"])
+@login_required
+def get_pca_plot(analysis_id):
+    pass
 
 
 @main_bp.route("/analysis/delete/<analysis_id>", methods=["POST"])
