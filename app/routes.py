@@ -37,6 +37,8 @@ main_bp = Blueprint("main_routes", __name__)  # No prefix for main app routes li
 CLUSTER_COL = "Cluster"
 UMAP1_COL = "X_umap1"
 UMAP2_COL = "X_umap2"
+PCA1_COL = "X_pca1"
+PCA2_COL = "X_pca2"
 
 
 # --- Helper functions (get_user_specific_data_path, allowed_file as before) ---
@@ -434,63 +436,52 @@ def view_analysis(analysis_id):
     return render_template("view_analysis.html", analysis=analysis_to_view)
 
 
-@main_bp.route("/analysis/umap_plot/<analysis_id>", methods=["GET"])
-@login_required
-def get_umap_plot(analysis_id):
-    all_users_data = get_all_users_data()
-    user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
-    analysis_to_view = find_analysis_by_id(user_analyses, analysis_id)
-
-    if not analysis_to_view:
-        current_app.logger.info(
-            f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'."
-        )
-        flash("No layout file found for this analysis.", "error")
-        return redirect(url_for("main_routes.index"))
-
-    if analysis_to_view.get("status") != "Completed":
-        flash("UMAP plot is not available until the analysis is completed.", "warning")
-        return redirect(url_for("main_routes.index"))
-
-    # Check if the layout is from file or umap generated
-    layout_filepath = ""
+def generate_scatter_plot_response(
+        analysis_to_view,
+        file_getter_fn,
+        current_user_id,
+        cluster_col,
+        x_col,
+        y_col,
+        plot_title,
+        xaxis_title,
+        yaxis_title
+):
     if analysis_to_view.get("inputs", {}).get("layout", {}).get("source") == "file":
         layout_file = (
             analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filename")
         )
-        layout_filepath = get_file_path(layout_file, current_user.id)
+        layout_filepath = file_getter_fn(layout_file, current_user_id)
+
         if not os.path.exists(layout_filepath):
             current_app.logger.error(
-                f"Layout file '{layout_file}' not found for analysis_id '{analysis_id}'."
+                f"Layout file '{layout_file}' not found for analysis_id '{analysis_to_view['id']}'."
             )
-            flash("Layout file not found in user files.", "error")
-            return redirect(url_for("main_routes.index"))
-        if not layout_filepath:
             flash("Layout file not found in user files.", "error")
             return redirect(url_for("main_routes.index"))
     else:
         layout_filepath = analysis_to_view.get("umap_csv")
 
-    # Read the UMAP coordinates file
+    # Read the UMAP/PCA coordinates file
     try:
-        umap_df = pd.read_csv(layout_filepath, index_col=0)
-        required_columns = {CLUSTER_COL, UMAP1_COL, UMAP2_COL}
+        plot_df = pd.read_csv(layout_filepath, index_col=0)
+        required_columns = {cluster_col, x_col, y_col}
 
-        if not required_columns.issubset(umap_df.columns):
-            missing_cols = required_columns - set(umap_df.columns)
+        if not required_columns.issubset(plot_df.columns):
+            missing_cols = required_columns - set(plot_df.columns)
             error_msg = (
-                f"UMAP file missing required columns: {', '.join(missing_cols)}."
+                f"UMAP/PCA file missing required columns: {', '.join(missing_cols)}."
             )
             current_app.logger.error(f"{error_msg} File: {layout_filepath}")
             return jsonify({"error": error_msg}), 400  # Bad Request
 
         traces = []
-        for cluster_label, group_df in umap_df.groupby(CLUSTER_COL):
+        for cluster_label, group_df in plot_df.groupby(cluster_col):
             traces.append(
                 {
                     "cluster": str(cluster_label),
-                    "x": group_df[UMAP1_COL].tolist(),
-                    "y": group_df[UMAP2_COL].tolist(),
+                    "x": group_df[x_col].tolist(),
+                    "y": group_df[y_col].tolist(),
                     "mode": "markers",
                     "type": "scattergl",
                     "name": str(cluster_label),
@@ -500,9 +491,9 @@ def get_umap_plot(analysis_id):
             )
 
         layout = {
-            "title": "UMAP Plot",
-            "xaxis": {"title": "UMAP1"},
-            "yaxis": {"title": "UMAP2"},
+            "title": plot_title,
+            "xaxis": {"title": xaxis_title},
+            "yaxis": {"title": yaxis_title},
             "hovermode": "closest",
         }
 
@@ -510,43 +501,93 @@ def get_umap_plot(analysis_id):
         return jsonify(graph_data), 200
 
     except pd.errors.EmptyDataError:
-        current_app.logger.error(f"UMAP file is empty: {layout_filepath}")
-        return jsonify({"error": "UMAP coordinates file is empty."}), 500
+        current_app.logger.error(f"UMAP/PCA file is empty: {layout_filepath}")
+        return jsonify({"error": "UMAP/PCA coordinates file is empty."}), 500
     except pd.errors.ParserError as e:
         current_app.logger.error(
-            f"Error parsing UMAP file: {layout_filepath}. Details: {e}"
+            f"Error parsing UMAP/PCA file: {layout_filepath}. Details: {e}"
         )
         return (
-            jsonify(
-                {"error": "Failed to parse UMAP coordinates file. Invalid format."}
-            ),
+            jsonify({"error": "Failed to parse UMAP/PCA coordinates file. Invalid format."}),
             500,
         )
     except KeyError as e:
         current_app.logger.error(
-            f"Missing expected column in UMAP file: {e}. File: {layout_filepath}",
+            f"Missing expected column in UMAP/PCA file: {e}. File: {layout_filepath}",
             exc_info=True,
         )
         return jsonify({"error": f"Data processing error: Missing column {e}."}), 500
     except Exception as e:
         current_app.logger.error(
-            f"Unexpected error processing UMAP file for analysis_id '{analysis_id}': {e}",
+            f"Unexpected error processing UMAP/PCA file for analysis_id '{analysis_to_view['id']}': {e}",
             exc_info=True,
         )
         return (
             jsonify(
                 {
-                    "error": "An unexpected error occurred while generating the UMAP plot."
+                    "error": "An unexpected error occurred while generating the UMAP/PCA plot."
                 }
             ),
             500,
         )
 
 
+@main_bp.route("/analysis/umap_plot/<analysis_id>", methods=["GET"])
+@login_required
+def get_umap_plot(analysis_id):
+    all_users_data = get_all_users_data()
+    user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
+    analysis_to_view = find_analysis_by_id(user_analyses, analysis_id)
+
+    if not analysis_to_view:
+        current_app.logger.info(f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'.")
+        flash("No layout file found for this analysis.", "error")
+        return redirect(url_for("main_routes.index"))
+
+    if analysis_to_view.get("status") != "Completed":
+        flash("PCA plot is not available until the analysis is completed.", "warning")
+        return redirect(url_for("main_routes.index"))
+
+    return generate_scatter_plot_response(
+        analysis_to_view,
+        get_file_path,
+        current_user.id,
+        CLUSTER_COL,
+        UMAP1_COL,
+        UMAP2_COL,
+        "UMAP Plot",
+        "UMAP1",
+        "UMAP2",
+    )
+
+
 @main_bp.route("/analysis/pca_plot/<analysis_id>", methods=["GET"])
 @login_required
 def get_pca_plot(analysis_id):
-    pass
+    all_users_data = get_all_users_data()
+    user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
+    analysis_to_view = find_analysis_by_id(user_analyses, analysis_id)
+
+    if not analysis_to_view:
+        current_app.logger.info(f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'.")
+        flash("No layout file found for this analysis.", "error")
+        return redirect(url_for("main_routes.index"))
+
+    if analysis_to_view.get("status") != "Completed":
+        flash("PCA plot is not available until the analysis is completed.", "warning")
+        return redirect(url_for("main_routes.index"))
+
+    return generate_scatter_plot_response(
+        analysis_to_view,
+        get_file_path,
+        current_user.id,
+        CLUSTER_COL,
+        PCA1_COL,
+        PCA2_COL,
+        "PCA Plot",
+        "PCA1",
+        "PCA2",
+    )
 
 
 @main_bp.route("/analysis/delete/<analysis_id>", methods=["POST"])

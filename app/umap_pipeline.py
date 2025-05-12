@@ -95,8 +95,12 @@ def run_umap_pipeline(
         result_path = analysis_data["results_path"]
         os.makedirs(result_path, exist_ok=True)
         umap_df = pd.DataFrame(
-            adata.obsm["X_umap"], index=adata.obs_names, columns=["X_umap1", "X_umap2", "X_pca1", "X_pca2"]
+            adata.obsm["X_umap"], index=adata.obs_names, columns=["X_umap1", "X_umap2"]
         )
+        if "X_pca" in adata.obsm:
+            umap_df["X_pca1"] = adata.obsm["X_pca"][:, 0]
+            umap_df["X_pca2"] = adata.obsm["X_pca"][:, 1]
+
         if "Cluster" in adata.obs:
             current_app.logger.info("[UMAP] Adding cluster labels from AnnData.obs.")
             umap_df["Cluster"] = adata.obs["Cluster"]

@@ -2,6 +2,9 @@
 console.log("Analysis object:", window.analysis);
 // Add view_analysis-specific JS here, e.g., Plotly rendering, form listeners, etc.
 
+const defaultPointSize = 4;
+const defaultOpacity = 0.5;
+
 // Plot configuration panel logic
 const plotTypeSelect = document.getElementById("plot-type");
 const colorBySelect = document.getElementById("color-by");
@@ -12,6 +15,20 @@ const pointSizeValue = document.getElementById("point-size-value");
 const opacitySlider = document.getElementById("opacity");
 const opacityValue = document.getElementById("opacity-value");
 const showLegendCheckbox = document.getElementById("show-legend");
+
+function resetPlotConfig() {
+	if (pointSizeSlider) {
+		pointSizeSlider.value = defaultPointSize;
+		pointSizeValue.textContent = defaultPointSize;
+	}
+	if (opacitySlider) {
+		opacitySlider.value = defaultOpacity;
+		opacityValue.textContent = defaultOpacity;
+	}
+	if (showLegendCheckbox) {
+		showLegendCheckbox.checked = false;
+	}
+}
 
 plotTypeSelect.addEventListener("change", function () {
 	if (this.value === "umap_plot") {  // UMAP Plot
@@ -136,6 +153,9 @@ async function getPlotData(plot_type = "umap_plot") {
 				displaylogo: false,
 				scrollZoom: true,
 			});
+
+			// Reset plot configuration
+			resetPlotConfig();
 		} else {
 			throw new Error(
 				"Received data is not in the expected format (missing 'data' or 'layout' properties)."
