@@ -105,12 +105,19 @@
                     Status: <span class="font-semibold
                                 {% if analysis.status == 'Completed' %} text-green-600
                                 {% elif analysis.status == 'Failed' %} text-red-600
-                                {% elif analysis.status == 'Running' %} text-blue-600
+                                {% elif analysis.status == 'Pending' %} text-blue-600
                                 {% else %} text-yellow-600 {% endif %}">
                         {{ analysis.status }}</span>
                 </p>
+                <p>
+                    {% if analysis.inputs.layout.source == 'generate_umap' %}
+                    <span class="text-sm text-gray-600">UMAP Coordinates Generated </span>
+                    {% else %}
+                    <span class="text-sm text-gray-600">2D Layout Provided</span>
+                    {% endif %}
+                </p>
                 <p class="text-xs text-gray-400">Created: {{ analysis.created_at | format_datetime }}</p>
-                {# Requires a datetime filter #}
+
             </div>
             <div>
                 <a href="{{ url_for('main_routes.view_analysis', analysis_id=analysis.id) }}"

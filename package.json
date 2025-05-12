@@ -1,7 +1,7 @@
 {
   "name": "tf-pred-webserver",
   "version": "1.0.0",
-  "main": "static/js/main.js",
+  "main": "",
   "scripts": {
     "dev": "parcel templates/*.html",
     "build:css": "tailwindcss -i ./static/css/src/input.css -o ./static/css/dist/output.css",

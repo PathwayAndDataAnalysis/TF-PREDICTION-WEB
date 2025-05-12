@@ -14,12 +14,20 @@ from flask import (
     current_app,
     jsonify,
 )
+from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from flask_login import login_user, logout_user, login_required, current_user
 
 # Import User model and data helpers from app.__init__
-from . import User, get_all_users_data, save_all_users_data, find_analysis_by_id
+from . import (
+    User,
+    get_all_users_data,
+    save_all_users_data,
+    find_analysis_by_id,
+    get_file_path,
+)
+from .umap_pipeline import run_umap_pipeline
+from .utils import run_in_background, update_analysis_status
 
 # Create Blueprints
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -321,9 +329,6 @@ def create_analysis():
             )
             return redirect(url_for("main_routes.create_analysis_page"))
 
-    # Other general file selections
-    # top_general_selected_files = request.form.getlist("selected_files")
-
     # --- Validation ---
     if not analysis_name:
         flash("Analysis name is required.", "error")
@@ -391,12 +396,23 @@ def create_analysis():
                 "layout_filename": layout_file if have_2d_layout else None,
                 "umap_settings": umap_parameters if not have_2d_layout else None,
             },
-            # "general_selected_files": top_general_selected_files # if using this
         },
     }
 
     current_user_node["analyses"].append(new_analysis)
     save_all_users_data(all_users_data)
+
+    if not have_2d_layout:
+        # Run UMAP in background
+        run_in_background(
+            run_umap_pipeline,
+            current_user.id,
+            analysis_id,
+            new_analysis,
+            users_data_path=None,  # Not needed if you use get_all_users_data inside
+            update_status_fn=update_analysis_status,
+        )
+        # Status is already "Pending" in new_analysis
 
     flash(f'Analysis "{analysis_name}" created successfully and is pending.', "success")
     return redirect(url_for("main_routes.index"))
@@ -426,26 +442,38 @@ def get_umap_plot(analysis_id):
     analysis_to_view = find_analysis_by_id(user_analyses, analysis_id)
 
     if not analysis_to_view:
-        current_app.logger.info(f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'.")
+        current_app.logger.info(
+            f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'."
+        )
         flash("No layout file found for this analysis.", "error")
         return redirect(url_for("main_routes.index"))
 
-    layout_file = analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filename")
-
-    # Find the path of layout file in files[]
-    user_files = all_users_data.get(current_user.id, {}).get("files", [])
-    layout_file_path = None
-    for file_info in user_files:
-        if file_info.get("filename") == layout_file:
-            layout_file_path = file_info.get("path")
-            break
-    if not layout_file_path:
-        flash("Layout file not found in user files.", "error")
+    if analysis_to_view.get("status") != "Completed":
+        flash("UMAP plot is not available until the analysis is completed.", "warning")
         return redirect(url_for("main_routes.index"))
+
+    # Check if the layout is from file or umap generated
+    layout_filepath = ""
+    if analysis_to_view.get("inputs", {}).get("layout", {}).get("source") == "file":
+        layout_file = (
+            analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filename")
+        )
+        layout_filepath = get_file_path(layout_file, current_user.id)
+        if not os.path.exists(layout_filepath):
+            current_app.logger.error(
+                f"Layout file '{layout_file}' not found for analysis_id '{analysis_id}'."
+            )
+            flash("Layout file not found in user files.", "error")
+            return redirect(url_for("main_routes.index"))
+        if not layout_filepath:
+            flash("Layout file not found in user files.", "error")
+            return redirect(url_for("main_routes.index"))
+    else:
+        layout_filepath = analysis_to_view.get("umap_csv")
 
     # Read the UMAP coordinates file
     try:
-        umap_df = pd.read_csv(layout_file_path, index_col=0)
+        umap_df = pd.read_csv(layout_filepath, index_col=0)
         required_columns = {CLUSTER_COL, UMAP1_COL, UMAP2_COL}
 
         if not required_columns.issubset(umap_df.columns):
@@ -453,7 +481,7 @@ def get_umap_plot(analysis_id):
             error_msg = (
                 f"UMAP file missing required columns: {', '.join(missing_cols)}."
             )
-            current_app.logger.error(f"{error_msg} File: {layout_file_path}")
+            current_app.logger.error(f"{error_msg} File: {layout_filepath}")
             return jsonify({"error": error_msg}), 400  # Bad Request
 
         traces = []
@@ -482,11 +510,11 @@ def get_umap_plot(analysis_id):
         return jsonify(graph_data), 200
 
     except pd.errors.EmptyDataError:
-        current_app.logger.error(f"UMAP file is empty: {layout_file_path}")
+        current_app.logger.error(f"UMAP file is empty: {layout_filepath}")
         return jsonify({"error": "UMAP coordinates file is empty."}), 500
     except pd.errors.ParserError as e:
         current_app.logger.error(
-            f"Error parsing UMAP file: {layout_file_path}. Details: {e}"
+            f"Error parsing UMAP file: {layout_filepath}. Details: {e}"
         )
         return (
             jsonify(
@@ -496,7 +524,7 @@ def get_umap_plot(analysis_id):
         )
     except KeyError as e:
         current_app.logger.error(
-            f"Missing expected column in UMAP file: {e}. File: {layout_file_path}",
+            f"Missing expected column in UMAP file: {e}. File: {layout_filepath}",
             exc_info=True,
         )
         return jsonify({"error": f"Data processing error: Missing column {e}."}), 500
@@ -506,7 +534,11 @@ def get_umap_plot(analysis_id):
             exc_info=True,
         )
         return (
-            jsonify({"error": "An unexpected error occurred while generating the UMAP plot."}),
+            jsonify(
+                {
+                    "error": "An unexpected error occurred while generating the UMAP plot."
+                }
+            ),
             500,
         )
 
