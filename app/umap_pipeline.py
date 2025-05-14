@@ -17,11 +17,18 @@ def run_umap_pipeline(
 
         # 1. Load data
         gene_expr = analysis_data["inputs"]["gene_expression"]
+        metadata_cols = []
         if gene_expr["source"] == "h5ad":
             current_app.logger.info(
                 f"[UMAP] Loading .h5ad file: {get_file_path(gene_expr["h5ad_filename"], user_id)}"
             )
             adata = sc.read_h5ad(get_file_path(gene_expr["h5ad_filename"], user_id))
+            # Save metadata obs_keys in analysis
+            metadata_cols = adata.obs_keys()
+            current_app.logger.info(
+                f"[UMAP] Metadata columns found in .h5ad file: {metadata_cols}"
+            )
+
         else:
             current_app.logger.info(
                 f"[UMAP] Loading counts file: {get_file_path(gene_expr['counts_filename'], user_id)}"
@@ -33,6 +40,7 @@ def run_umap_pipeline(
                 )
                 meta = pd.read_csv(get_file_path(gene_expr["metadata_filename"], user_id), index_col=0)
                 adata = sc.AnnData(counts, obs=meta)
+                metadata_cols = adata.obs_keys()
             else:
                 current_app.logger.info(
                     "[UMAP] No metadata file provided, creating AnnData with counts only."
@@ -118,9 +126,8 @@ def run_umap_pipeline(
         current_app.logger.info(
             f"[UMAP] UMAP pipeline completed successfully for analysis '{analysis_id}'."
         )
-        update_status_fn(user_id, analysis_id, "Completed", umap_csv_path)
+        update_status_fn(user_id, analysis_id, "Completed", umap_csv_path, metadata_cols)
     except Exception as e:
-        # Update status to Failed
         current_app.logger.error(
             f"[UMAP] UMAP pipeline failed for analysis '{analysis_id}': {e}",
             exc_info=True,

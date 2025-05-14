@@ -25,10 +25,12 @@ def run_in_background(fn, *args, **kwargs):
 
 
 def update_analysis_status(
-        user_id, analysis_id, status, umap_csv_path=None, error=None
+        user_id, analysis_id, status, umap_csv_path=None, metadata_cols=None, error=None
 ):
+    if metadata_cols is None:
+        metadata_cols = []
     current_app.logger.info(
-        f"[UTILS] Updating analysis status: user_id={user_id}, analysis_id={analysis_id}, status={status}, umap_csv_path={umap_csv_path}, error={error}"
+        f"[UTILS] Updating analysis status: user_id={user_id}, analysis_id={analysis_id}, status={status}, umap_csv_path={umap_csv_path}, metadata_cols={metadata_cols}, error={error}"
     )
     all_users_data = get_all_users_data()
     user_node = all_users_data.get(user_id, {})
@@ -36,6 +38,7 @@ def update_analysis_status(
     for analysis in user_node.get("analyses", []):
         if analysis["id"] == analysis_id:
             analysis["status"] = status
+            analysis["metadata_cols"] = metadata_cols
             if umap_csv_path:
                 analysis["umap_csv"] = umap_csv_path
             if error:

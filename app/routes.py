@@ -14,6 +14,7 @@ from flask import (
     current_app,
     jsonify,
 )
+import scanpy as sc
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -32,6 +33,7 @@ from .utils import run_in_background, update_analysis_status
 # Create Blueprints
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 main_bp = Blueprint("main_routes", __name__)  # No prefix for main app routes like index
+
 
 # Define constants for column names
 CLUSTER_COL = "Cluster"
@@ -189,7 +191,9 @@ def upload_data():
                 try:
                     os.remove(destination_file_path)
                 except OSError:
-                    pass  # Log this too
+                    current_app.logger.error(
+                        f"Error removing partially saved file {destination_file_path}"
+                    )
     else:
         flash(
             f'File type not allowed or file error. Allowed: {", ".join(current_app.config["ALLOWED_EXTENSIONS"])}',
@@ -414,7 +418,6 @@ def create_analysis():
             users_data_path=None,  # Not needed if you use get_all_users_data inside
             update_status_fn=update_analysis_status,
         )
-        # Status is already "Pending" in new_analysis
 
     flash(f'Analysis "{analysis_name}" created successfully and is pending.', "success")
     return redirect(url_for("main_routes.index"))
@@ -437,15 +440,15 @@ def view_analysis(analysis_id):
 
 
 def generate_scatter_plot_response(
-        analysis_to_view,
-        file_getter_fn,
-        current_user_id,
-        cluster_col,
-        x_col,
-        y_col,
-        plot_title,
-        xaxis_title,
-        yaxis_title
+    analysis_to_view,
+    file_getter_fn,
+    current_user_id,
+    cluster_col,
+    x_col,
+    y_col,
+    plot_title,
+    xaxis_title,
+    yaxis_title,
 ):
     if analysis_to_view.get("inputs", {}).get("layout", {}).get("source") == "file":
         layout_file = (
@@ -473,6 +476,7 @@ def generate_scatter_plot_response(
                 f"UMAP/PCA file missing required columns: {', '.join(missing_cols)}."
             )
             current_app.logger.error(f"{error_msg} File: {layout_filepath}")
+            flash(error_msg, "error")
             return jsonify({"error": error_msg}), 400  # Bad Request
 
         traces = []
@@ -494,10 +498,13 @@ def generate_scatter_plot_response(
             "title": plot_title,
             "xaxis": {"title": xaxis_title},
             "yaxis": {"title": yaxis_title},
-            "hovermode": "closest",
         }
 
-        graph_data = {"data": traces, "layout": layout}
+        graph_data = {
+            "data": traces,
+            "layout": layout,
+            "metadata_cols": analysis_to_view.get("metadata_cols", []),
+        }
         return jsonify(graph_data), 200
 
     except pd.errors.EmptyDataError:
@@ -508,7 +515,9 @@ def generate_scatter_plot_response(
             f"Error parsing UMAP/PCA file: {layout_filepath}. Details: {e}"
         )
         return (
-            jsonify({"error": "Failed to parse UMAP/PCA coordinates file. Invalid format."}),
+            jsonify(
+                {"error": "Failed to parse UMAP/PCA coordinates file. Invalid format."}
+            ),
             500,
         )
     except KeyError as e:
@@ -540,7 +549,9 @@ def get_umap_plot(analysis_id):
     analysis_to_view = find_analysis_by_id(user_analyses, analysis_id)
 
     if not analysis_to_view:
-        current_app.logger.info(f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'.")
+        current_app.logger.info(
+            f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'."
+        )
         flash("No layout file found for this analysis.", "error")
         return redirect(url_for("main_routes.index"))
 
@@ -569,7 +580,9 @@ def get_pca_plot(analysis_id):
     analysis_to_view = find_analysis_by_id(user_analyses, analysis_id)
 
     if not analysis_to_view:
-        current_app.logger.info(f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'.")
+        current_app.logger.info(
+            f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'."
+        )
         flash("No layout file found for this analysis.", "error")
         return redirect(url_for("main_routes.index"))
 
@@ -588,6 +601,154 @@ def get_pca_plot(analysis_id):
         "PCA1",
         "PCA2",
     )
+
+
+def get_layout_and_metadata_dfs(analysis, user_id):
+    """Return plot_df and metadata_df for the given analysis."""
+    layout_source = analysis.get("inputs", {}).get("layout", {}).get("source")
+    if layout_source == "file":
+        layout_file = (
+            analysis.get("inputs", {}).get("layout", {}).get("layout_filename")
+        )
+        layout_filepath = get_file_path(layout_file, user_id)
+        plot_df = pd.read_csv(layout_filepath, index_col=0)
+        metadata_file = (
+            analysis.get("inputs", {})
+            .get("gene_expression", {})
+            .get("metadata_filename")
+        )
+        metadata_df = pd.read_csv(get_file_path(metadata_file, user_id), index_col=0)
+    else:
+        layout_filepath = analysis.get("umap_csv")
+        plot_df = pd.read_csv(layout_filepath, index_col=0)
+        h5ad_file = (
+            analysis.get("inputs", {}).get("gene_expression", {}).get("h5ad_filename")
+        )
+        adata = sc.read_h5ad(get_file_path(h5ad_file, user_id))
+        metadata_df = pd.DataFrame(adata.obs)
+    return plot_df, metadata_df
+
+
+def generate_colored_traces(plot_df, x_col, y_col):
+    traces = []
+    for cluster in plot_df["Cluster"].unique().tolist():
+        traces.append(
+            {
+                "cluster": cluster,
+                "x": plot_df[plot_df["Cluster"] == cluster][x_col].tolist(),
+                "y": plot_df[plot_df["Cluster"] == cluster][y_col].tolist(),
+                "mode": "markers",
+                "type": "scattergl",
+                "name": cluster,
+                "size": 4,
+                "opacity": 0.5,
+            }
+        )
+    return traces
+
+
+@main_bp.route("/analysis/metadata-cluster/<analysis_id>", methods=["POST"])
+@login_required
+def get_metadata_color_by(analysis_id):
+    current_app.logger.info(
+        f"Request to color by metadata for analysis_id={analysis_id} by user={current_user.id}"
+    )
+    all_users_data = get_all_users_data()
+    user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
+    analysis = find_analysis_by_id(user_analyses, analysis_id)
+
+    if not analysis:
+        current_app.logger.warning(
+            f"Analysis not found: analysis_id={analysis_id} for user={current_user.id}"
+        )
+        return jsonify({"error": "Analysis not found."}), 404
+    if analysis.get("status") != "Completed":
+        current_app.logger.info(
+            f"Analysis not completed yet: analysis_id={analysis_id} for user={current_user.id}"
+        )
+        return jsonify({"error": "Analysis is not completed yet."}), 400
+
+    metadata_cluster = request.json.get("selected_metadata_cluster", "").strip()
+    plot_type = request.json.get("plot_type", "").strip()
+    current_app.logger.debug(
+        f"Received metadata_cluster='{metadata_cluster}', plot_type='{plot_type}' for analysis_id={analysis_id}"
+    )
+    if not metadata_cluster:
+        current_app.logger.warning(
+            f"No metadata column provided in request for analysis_id={analysis_id}"
+        )
+        return jsonify({"error": "Metadata column is required."}), 400
+
+    metadata_cols = analysis.get("metadata_cols", [])
+    if metadata_cluster not in metadata_cols:
+        current_app.logger.warning(
+            f"Requested metadata column '{metadata_cluster}' not found in metadata_cols for analysis_id={analysis_id}"
+        )
+        return (
+            jsonify({"error": f"Metadata column '{metadata_cluster}' not found."}),
+            400,
+        )
+
+    try:
+        plot_df, metadata_df = get_layout_and_metadata_dfs(analysis, current_user.id)
+        if metadata_cluster not in metadata_df.columns:
+            current_app.logger.warning(
+                f"Metadata column '{metadata_cluster}' not found in metadata_df columns for analysis_id={analysis_id}"
+            )
+            return (
+                jsonify(
+                    {
+                        "error": f"Metadata column '{metadata_cluster}' not found in metadata file."
+                    }
+                ),
+                400,
+            )
+
+        # Drop column named "Cluster" if it exists
+        if "Cluster" in plot_df.columns:
+            plot_df = plot_df.drop(columns=["Cluster"])
+        # Merge plot_df with metadata_df on index
+        plot_df = plot_df.merge(
+            metadata_df[[metadata_cluster]], left_index=True, right_index=True
+        )
+        plot_df = plot_df.rename(columns={metadata_cluster: "Cluster"})
+        plot_df["Cluster"] = plot_df["Cluster"].astype(str)
+
+        # Choose columns based on plot_type
+        if plot_type.lower() == "umap_plot":
+            x_col, y_col = UMAP1_COL, UMAP2_COL
+            title = f"UMAP Plot Colored by {metadata_cluster}"
+        elif plot_type.lower() == "pca_plot":
+            x_col, y_col = PCA1_COL, PCA2_COL
+            title = f"PCA Plot Colored by {metadata_cluster}"
+        else:
+            current_app.logger.warning(
+                f"Unknown plot type '{plot_type}' requested for analysis_id={analysis_id}"
+            )
+            return jsonify({"error": f"Unknown plot type: {plot_type}"}), 400
+
+        traces = generate_colored_traces(plot_df, x_col, y_col)
+        layout = {
+            "title": title,
+            "xaxis": {"title": x_col},
+            "yaxis": {"title": y_col},
+        }
+        graph_data = {
+            "data": traces,
+            "layout": layout,
+            "metadata_cols": metadata_cols,
+        }
+        current_app.logger.info(
+            f"Successfully generated colored plot for analysis_id={analysis_id}, metadata_cluster='{metadata_cluster}', plot_type='{plot_type}'"
+        )
+        return jsonify(graph_data), 200
+
+    except Exception as e:
+        current_app.logger.error(
+            f"Error in get_metadata_color_by for analysis_id={analysis_id}, metadata_cluster='{metadata_cluster}', plot_type='{plot_type}': {e}",
+            exc_info=True,
+        )
+        return jsonify({"error": "Internal server error."}), 500
 
 
 @main_bp.route("/analysis/delete/<analysis_id>", methods=["POST"])

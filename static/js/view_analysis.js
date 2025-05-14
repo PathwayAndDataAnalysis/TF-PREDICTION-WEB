@@ -9,6 +9,7 @@ const defaultOpacity = 0.5;
 const plotTypeSelect = document.getElementById("plot-type");
 const colorBySelect = document.getElementById("color-by");
 const metadataColSelectionDiv = document.getElementById("metadata-column-selection-div");
+const metadataColNameSelect = document.getElementById("metadata-column-name");
 const tfSelectionDiv = document.getElementById("tf-selection-div");
 const pointSizeSlider = document.getElementById("point-size");
 const pointSizeValue = document.getElementById("point-size-value");
@@ -28,12 +29,14 @@ function resetPlotConfig() {
 	if (showLegendCheckbox) {
 		showLegendCheckbox.checked = false;
 	}
+
 }
 
 plotTypeSelect.addEventListener("change", function () {
 	if (this.value === "umap_plot") {  // UMAP Plot
 		console.log("UMAP plot selected");
-		getPlotData(this.value)
+		const apiUrl = `/analysis/umap_plot/${window.analysis.id}`;
+		getPlotData(this.value, apiUrl)
 		.then(() => {
 			console.log("UMAP Plot loaded successfully.");
 		})
@@ -44,7 +47,8 @@ plotTypeSelect.addEventListener("change", function () {
 	}
 	else {  // PCA Plot
 		console.log("PCA plot selected");
-		getPlotData(this.value)
+		const apiUrl = `/analysis/pca_plot/${window.analysis.id}`;
+		getPlotData(this.value, apiUrl)
 		.then(() => {
 			console.log("PCA Plot loaded successfully.");
 		})
@@ -70,6 +74,51 @@ if (colorBySelect) {
 		}
 	});
 }
+
+function updatePlot(plot_data){
+	if (plot_data.data && plot_data.layout) {
+		plot_data.layout.dragmode = "pan"; // Set default to pan
+		plot_data.layout.hovermode = "closest"; // Set default hover mode
+		plot_data.layout.legend = {
+			x: -5,         // Position legend slightly to the right of the plot area (0-1 is plot area)
+			y: 1,            // Align legend top with plot top
+			xanchor: 'left',   // Anchor the legend's left edge to the x position
+			yanchor: 'top',    // Anchor the legend's top edge to the y position
+			traceorder: 'normal', // or 'reversed' or 'grouped'
+		};
+
+		Plotly.newPlot("scatterPlot", plot_data.data, plot_data.layout, {
+			responsive: true,
+			displayModeBar: true,
+			displaylogo: false,
+			scrollZoom: true,
+			showlegend: false,
+		});
+
+		// Reset plot configuration
+		resetPlotConfig();
+	} else {
+		throw new Error("Received data is not in the expected format.");
+	}
+}
+
+metadataColNameSelect.addEventListener("change", function () {
+	if (this.value !== "select_metadata_column") {
+		const apiUrl = `/analysis/metadata-cluster/${window.analysis.id}`;
+
+		getPlotData(
+			this.value, apiUrl,
+			"POST",
+			{ selected_metadata_cluster: this.value, plot_type: plotTypeSelect.value }
+		).then(() => {
+			console.log("Metadata cluster plot loaded successfully.");
+		})
+		.catch((err) => {
+			console.error("Failed to load plot:", err);
+			alert("Failed to load plot. Please try again later.");
+		});
+	}
+})
 
 if (pointSizeSlider && pointSizeValue) {
 	pointSizeSlider.addEventListener("input", function (e) {
@@ -106,22 +155,20 @@ if (plotConfigForm) {
 }
 
 // UMAP plot loading and rendering
-async function getPlotData(plot_type = "umap_plot") {
+async function getPlotData(plot_type = "umap_plot", apiUrl, method = "GET", body = null) {
 	document.getElementById("plot-loading-spinner").style.display = "block";
-
-	const apiUrl = plot_type === "umap_plot"
-	    ? `/analysis/umap_plot/${window.analysis.id}`
-	    : `/analysis/pca_plot/${window.analysis.id}`;
 
 	try {
 		const response = await fetch(apiUrl, {
-			method: "GET",
+			method: method,
 			headers: { "Content-Type": "application/json" },
+			body: body ? JSON.stringify(body) : null,
 		});
 
 		let data;
 		try {
 			data = await response.json();
+			console.log("Plot data", data);
 		} catch (jsonError) {
 			if (!response.ok) {
 				throw new Error(
@@ -139,28 +186,8 @@ async function getPlotData(plot_type = "umap_plot") {
 			throw new Error(errorMessage);
 		}
 
-		if (data.data && data.layout) {
-			data.layout.dragmode = "pan"; // Set default to pan
-			data.layout.legend = {
-				x: -5,
-				xanchor: "left",
-				y: 10,
-				yanchor: "top",
-			};
-			Plotly.newPlot("scatterPlot", data.data, data.layout, {
-				responsive: true,
-				displayModeBar: true,
-				displaylogo: false,
-				scrollZoom: true,
-			});
+		updatePlot(data)
 
-			// Reset plot configuration
-			resetPlotConfig();
-		} else {
-			throw new Error(
-				"Received data is not in the expected format (missing 'data' or 'layout' properties)."
-			);
-		}
 	} catch (error) {
 		console.error("Error in getPlotData:", error);
 	} finally {
@@ -169,7 +196,11 @@ async function getPlotData(plot_type = "umap_plot") {
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-	getPlotData()
+	getPlotData(
+		"umap_plot",
+		`/analysis/umap_plot/${window.analysis.id}`,
+		"GET"
+	)
 		.then(() => {
 			console.log("Plot loaded successfully.");
 		})

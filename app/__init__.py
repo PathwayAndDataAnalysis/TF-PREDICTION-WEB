@@ -9,9 +9,8 @@ from flask_login import LoginManager, UserMixin
 
 # --- User Model ---
 class User(UserMixin):
-    def __init__(self, id_):  # Renamed id to id_ to avoid conflict with built-in id
+    def __init__(self, id_):
         self.id = id_
-        # In a real app, you'd load more user details here
 
 
 # --- Login Manager Setup ---

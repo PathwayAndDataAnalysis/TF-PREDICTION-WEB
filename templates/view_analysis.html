@@ -87,7 +87,7 @@ block content %}
 							name="color_by"
 							class="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
 						>
-							<option value="select_cluster">---Select Cluster Type---</option>
+							<option value="select_cluster_type">---Select Cluster Type---</option>
 							<option value="metadata_columns">Metadata Columns</option>
 							<option value="tf_activity">TF Activity</option>
 						</select>
@@ -95,15 +95,16 @@ block content %}
 
                     <div id="metadata-column-selection-div" class="mb-4 hidden">
 						<label for="metadata-column-name" class="block text-sm font-medium text-gray-700 mb-1"
-							>Metadata Column:</label
-						>
-						<input
-							type="text"
-							id="metadata-column-selection-name"
-							name="metadata-column-selection-name"
-							class="block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-							placeholder="Enter metadata column name"
-						/>
+							>Metadata Column:</label>
+                        <select
+                            id="metadata-column-name"
+                            name="metadata_column_name"
+                            class="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            <option value="select_metadata_column">---Select Metadata Column---</option>
+                            {% for column in analysis.metadata_cols %}
+                                <option value="{{ column }}">{{ column }}</option>
+                            {% endfor %}
+                        </select>
 					</div>
 
                     <div id="tf-selection-div" class="mb-4 hidden">
