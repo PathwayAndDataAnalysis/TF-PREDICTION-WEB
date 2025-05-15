@@ -82,9 +82,9 @@
 			{% endfor %} {% endif %} {% endwith %}
 		</div>
 
-		<main class="container mx-auto mt-2 p-4 flex-grow">{% block content %}{% endblock %}</main>
+		<main class="container mx-auto mt-2 p-2 flex-grow">{% block content %}{% endblock %}</main>
 
-		<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+		 <script src="https://cdn.plot.ly/plotly-3.0.1.min.js" charset="utf-8"></script>
 		<script src="{{ url_for('static', filename='js/common.js') }}" defer></script>
 	</body>
 </html>

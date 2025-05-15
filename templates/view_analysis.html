@@ -1,7 +1,7 @@
 {% extends "base.html" %} {% block title %}View Analysis - {{ analysis.name }}{% endblock %} {%
 block content %}
-<div class="container mx-auto py-2 flex flex-col h-full">
-	<div class="flex justify-between items-center mb-4 pb-2 border-b">
+<div class="container mx-auto flex flex-col h-full">
+	<div class="flex justify-between items-center mb-2 pb-2 border-b">
 		<h1 class="text-2xl font-bold text-gray-800">
 			<span class="text-blue-600">{{ analysis.name }}</span>
 		</h1>
@@ -23,7 +23,7 @@ block content %}
 		</a>
 	</div>
 
-	<div class="grid grid-cols-1 md:grid-cols-4 gap-6 flex-grow">
+	<div class="grid grid-cols-1 md:grid-cols-4 gap-4 flex-grow">
 		<!-- Plot Display Area -->
 		<div class="md:col-span-3 bg-white p-4 rounded-lg shadow-lg flex flex-col">
 			<h2 class="text-xl font-semibold text-gray-700 mb-4 border-b pb-2">UMAP Plot</h2>
@@ -80,92 +80,97 @@ block content %}
 						</select>
 					</div>
 
-					<div class="mb-4">
-						<label for="color-by" class="block text-sm font-medium text-gray-700 mb-1">Color by:</label>
-						<select
-							id="color-by"
-							name="color_by"
-							class="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-						>
-							<option value="select_cluster_type">---Select Cluster Type---</option>
-							<option value="metadata_columns">Metadata Columns</option>
-							<option value="tf_activity">TF Activity</option>
-						</select>
-					</div>
+                    <div class="border border-gray-300 rounded-md bg-gray-100 px-2 pt-2 fill-slate-100">
+                        <div class="mb-4">
+                            <label for="color-by" class="block text-sm font-medium text-gray-700 mb-1">Color by:</label>
+                            <select
+                                id="color-by"
+                                name="color_by"
+                                class="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            >
+                                <option value="select_cluster_type">---Select Cluster Type---</option>
+                                <option value="metadata_columns">Metadata Columns</option>
+                                <option value="tf_activity">TF Activity</option>
+                            </select>
+                        </div>
 
-                    <div id="metadata-column-selection-div" class="mb-4 hidden">
-						<label for="metadata-column-name" class="block text-sm font-medium text-gray-700 mb-1"
-							>Metadata Column:</label>
-                        <select
-                            id="metadata-column-name"
-                            name="metadata_column_name"
-                            class="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-                            <option value="select_metadata_column">---Select Metadata Column---</option>
-                            {% for column in analysis.metadata_cols %}
-                                <option value="{{ column }}">{{ column }}</option>
-                            {% endfor %}
-                        </select>
-					</div>
+                        <div id="metadata-column-selection-div" class="mb-4 hidden">
+                            <label for="metadata-column-name" class="block text-sm font-medium text-gray-700 mb-1"
+                                >Metadata Column:</label>
+                            <select
+                                id="metadata-column-name"
+                                name="metadata_column_name"
+                                class="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                                <option value="select_metadata_column">---Select Metadata Column---</option>
+                                {% for column in analysis.metadata_cols %}
+                                    <option value="{{ column }}">{{ column }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
 
-                    <div id="tf-selection-div" class="mb-4 hidden">
-						<label for="tf-name" class="block text-sm font-medium text-gray-700 mb-1"
-							>TF Name:</label
-						>
-						<input
-							type="text"
-							id="tf-name"
-							name="tf_name"
-							class="block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-							placeholder="Enter tf symbol"
-						/>
-					</div>
+                        <div id="tf-selection-div" class="mb-4 hidden">
+                            <label for="tf-name" class="block text-sm font-medium text-gray-700 mb-1"
+                                >TF Name:</label
+                            >
+                            <input
+                                type="text"
+                                id="tf-name"
+                                name="tf_name"
+                                class="block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                placeholder="Enter tf symbol"
+                            />
+                        </div>
+                    </div>
 
-					<div class="mb-4">
-						<label for="point-size" class="block text-sm font-medium text-gray-700 mb-1"
-							>Point Size:</label
-						>
-						<input
-							type="range"
-							id="point-size"
-							name="point_size"
-							min="1"
-							max="10"
-							value="4"
-							class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-						/>
-						<span id="point-size-value" class="text-xs text-gray-500">4</span>
-					</div>
+                    <div class="border border-gray-300 rounded-md bg-gray-100 px-2 pt-2 mt-2 fill-slate-100">
+                        <div class="mb-2">
+                            <label for="point-size" class="block text-sm font-medium text-gray-700 mb-1"
+                                >Point Size:</label
+                            >
+                            <input
+                                type="range"
+                                id="point-size"
+                                name="point_size"
+                                min="1"
+                                max="10"
+                                value="4"
+                                class="w-full h-2 bg-gray-400 rounded-sm appearance-none cursor-pointer"
+                            />
+                            <span id="point-size-value" class="text-xs text-gray-500">4</span>
+                        </div>
 
-					<div class="mb-4">
-						<label for="opacity" class="block text-sm font-medium text-gray-700 mb-1"
-							>Opacity:</label
-						>
-						<input
-							type="range"
-							id="opacity"
-							name="opacity"
-							min="0.1"
-							max="1"
-							value="0.5"
-							step="0.1"
-							class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-						/>
-						<span id="opacity-value" class="text-xs text-gray-500">0.5</span>
-					</div>
+                        <div class="mb-2">
+                            <label for="opacity" class="block text-sm font-medium text-gray-700 mb-1"
+                                >Opacity:</label
+                            >
+                            <input
+                                type="range"
+                                id="opacity"
+                                name="opacity"
+                                min="0.1"
+                                max="1"
+                                value="0.5"
+                                step="0.1"
+                                class="w-full h-2 bg-gray-400 rounded-sm appearance-none cursor-pointer"
+                            />
+                            <span id="opacity-value" class="text-xs text-gray-500">0.5</span>
+                        </div>
 
-					<div class="mb-4">
-						<label class="block text-sm font-medium text-gray-700 mb-1">Legend</label>
-						<div class="flex items-center">
-							<input
-								id="show-legend"
-								name="show_legend"
-								type="checkbox"
-								class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-							/>
-							<label for="show-legend" class="ml-2 block text-sm text-gray-900">Show Legend</label>
-						</div>
-					</div>
-				</div>
+                        <div class="mb-2">
+                            <div class="flex items-center">
+                                <input
+                                    id="show-legend"
+                                    name="show_legend"
+                                    type="checkbox"
+                                    checked
+                                    class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                                />
+                                <label for="show-legend" class="ml-2 block text-sm text-gray-900">Show Legend</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
 				<!-- End of wrapper for form elements -->
 				<button
 					type="submit"

@@ -1,6 +1,5 @@
 // Use window.analysis for the analysis object
 console.log("Analysis object:", window.analysis);
-// Add view_analysis-specific JS here, e.g., Plotly rendering, form listeners, etc.
 
 const defaultPointSize = 4;
 const defaultOpacity = 0.5;
@@ -26,10 +25,6 @@ function resetPlotConfig() {
 		opacitySlider.value = defaultOpacity;
 		opacityValue.textContent = defaultOpacity;
 	}
-	if (showLegendCheckbox) {
-		showLegendCheckbox.checked = false;
-	}
-
 }
 
 plotTypeSelect.addEventListener("change", function () {
@@ -79,20 +74,20 @@ function updatePlot(plot_data){
 	if (plot_data.data && plot_data.layout) {
 		plot_data.layout.dragmode = "pan"; // Set default to pan
 		plot_data.layout.hovermode = "closest"; // Set default hover mode
+		plot_data.layout.showlegend = showLegendCheckbox.checked;
 		plot_data.layout.legend = {
-			x: -5,         // Position legend slightly to the right of the plot area (0-1 is plot area)
-			y: 1,            // Align legend top with plot top
-			xanchor: 'left',   // Anchor the legend's left edge to the x position
-			yanchor: 'top',    // Anchor the legend's top edge to the y position
-			traceorder: 'normal', // or 'reversed' or 'grouped'
+			x: 1,        			// Position legend slightly to the right of the plot area (0-1 is plot area)
+			y: 1,            		// Align legend top with plot top
+			xanchor: 'right',   	// Anchor the legend's left edge to the x position
+			yanchor: 'top',    		// Anchor the legend's top edge to the y position
+			traceorder: 'normal', 	// or 'reversed' or 'grouped'
 		};
 
 		Plotly.newPlot("scatterPlot", plot_data.data, plot_data.layout, {
 			responsive: true,
 			displayModeBar: true,
 			displaylogo: false,
-			scrollZoom: true,
-			showlegend: false,
+			scrollZoom: true
 		});
 
 		// Reset plot configuration
@@ -187,7 +182,6 @@ async function getPlotData(plot_type = "umap_plot", apiUrl, method = "GET", body
 		}
 
 		updatePlot(data)
-
 	} catch (error) {
 		console.error("Error in getPlotData:", error);
 	} finally {
