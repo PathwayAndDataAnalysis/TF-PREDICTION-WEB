@@ -82,6 +82,19 @@ function updatePlot(plot_data){
 			yanchor: 'top',    		// Anchor the legend's top edge to the y position
 			traceorder: 'normal', 	// or 'reversed' or 'grouped'
 		};
+		plot_data.layout.margin = {
+			l: 15, // left
+			r: 15, // right
+			t: 30, // top
+			b: 15  // bottom
+		}
+		plot_data.layout.autosize = true
+		plot_data.layout.xaxis ={
+			title: plot_data.layout.xaxis.title,
+		}
+		plot_data.layout.yaxis = {
+			title: plot_data.layout.yaxis.title,
+		}
 
 		Plotly.newPlot("scatterPlot", plot_data.data, plot_data.layout, {
 			responsive: true,

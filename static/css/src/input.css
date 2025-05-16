@@ -16,3 +16,29 @@ body {
     /*transform: translateX(100%); !* Slides out to the right *!*/
     transform: translateY(20px);
 }
+
+/* Ensure the modebar is a single row and scrolls horizontally if needed */
+.modebar {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  white-space: nowrap !important;
+}
+
+/* Make sure each group stays in a row, not a column */
+.modebar-group {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  margin-right: 4px; /* optional: space between groups */
+}
+
+/* Prevent modebar buttons from wrapping */
+.modebar-btn {
+  white-space: nowrap !important;
+}
