@@ -111,7 +111,7 @@
                 </p>
                 <p>
                     {% if analysis.inputs.layout.source == 'generate_umap' %}
-                    <span class="text-sm text-gray-600">UMAP Coordinates Generated </span>
+                    <span class="text-sm text-gray-600">UMAP Coordinates Generated, Data Source: {{ analysis.inputs.gene_expression.h5ad_filename }} </span>
                     {% else %}
                     <span class="text-sm text-gray-600">2D Layout Provided</span>
                     {% endif %}

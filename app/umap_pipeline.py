@@ -8,7 +8,7 @@ from app import get_file_path
 
 
 def run_umap_pipeline(
-        user_id, analysis_id, analysis_data, users_data_path, update_status_fn
+        user_id, analysis_id, analysis_data, update_status_fn, run_analysis_fn
 ):
     try:
         current_app.logger.info(
@@ -127,6 +127,21 @@ def run_umap_pipeline(
             f"[UMAP] UMAP pipeline completed successfully for analysis '{analysis_id}'."
         )
         update_status_fn(user_id, analysis_id, "Completed", umap_csv_path, metadata_cols)
+
+        # 5. Run analysis function
+        current_app.logger.info(
+            f"[UMAP] Running analysis function for analysis '{analysis_id}'."
+        )
+
+        run_analysis_fn(
+            user_id=user_id,
+            analysis_id=analysis_id,
+            analysis_data=analysis_data,
+            adata = adata,
+            update_analysis_status_fn=update_status_fn
+        )
+
+
     except Exception as e:
         current_app.logger.error(
             f"[UMAP] UMAP pipeline failed for analysis '{analysis_id}': {e}",

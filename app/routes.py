@@ -27,6 +27,7 @@ from . import (
     find_analysis_by_id,
     get_file_path,
 )
+from .tf_analysis import run_tf_analysis
 from .umap_pipeline import run_umap_pipeline
 from .utils import run_in_background, update_analysis_status
 
@@ -408,6 +409,7 @@ def create_analysis():
     current_user_node["analyses"].append(new_analysis)
     save_all_users_data(all_users_data)
 
+    # 1. Run UMAP Pipeline in the background to generate 2D layout
     if not have_2d_layout:
         # Run UMAP in background
         run_in_background(
@@ -415,8 +417,8 @@ def create_analysis():
             current_user.id,
             analysis_id,
             new_analysis,
-            users_data_path=None,  # Not needed if you use get_all_users_data inside
             update_status_fn=update_analysis_status,
+            run_analysis_fn=run_tf_analysis
         )
 
     flash(f'Analysis "{analysis_name}" created successfully and is pending.', "success")
