@@ -10,6 +10,7 @@ const colorBySelect = document.getElementById("color-by");
 const metadataColSelectionDiv = document.getElementById("metadata-column-selection-div");
 const metadataColNameSelect = document.getElementById("metadata-column-name");
 const tfSelectionDiv = document.getElementById("tf-selection-div");
+const tfNameSelect = document.getElementById("tf-name-select");
 const pointSizeSlider = document.getElementById("point-size");
 const pointSizeValue = document.getElementById("point-size-value");
 const opacitySlider = document.getElementById("opacity");
@@ -126,7 +127,25 @@ metadataColNameSelect.addEventListener("change", function () {
 			alert("Failed to load plot. Please try again later.");
 		});
 	}
-})
+});
+
+tfNameSelect.addEventListener("change", function () {
+	if (this.value !== "select_tf"){
+		const apiUrl = `/analysis/tf-activity/${window.analysis.id}`;
+
+		getPlotData(
+			this.value, apiUrl,
+			"POST",
+			{ selected_tf: this.value, plot_type: plotTypeSelect.value }
+		).then(() => {
+			console.log("TF activity plot loaded successfully.");
+		})
+		.catch((err) => {
+			console.error("Failed to load plot:", err);
+			alert("Failed to load plot. Please try again later.");
+		});
+	}
+});
 
 if (pointSizeSlider && pointSizeValue) {
 	pointSizeSlider.addEventListener("input", function (e) {

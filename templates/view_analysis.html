@@ -90,6 +90,7 @@ block content %}
                                 <option value="select_cluster_type">---Select Cluster Type---</option>
                                 <option value="metadata_columns">Metadata Columns</option>
                                 <option value="tf_activity">TF Activity</option>
+                                <option value="pvalues">P-Values</option>
                             </select>
                         </div>
 
@@ -108,16 +109,17 @@ block content %}
                         </div>
 
                         <div id="tf-selection-div" class="mb-4 hidden">
-                            <label for="tf-name" class="block text-sm font-medium text-gray-700 mb-1"
-                                >TF Name:</label
+                            <label for="tf-name-select" class="block text-sm font-medium text-gray-700 mb-1">TF Name:</label>
+                            <select
+                                id="tf-name-select"
+                                name="tf_name_select"
+                                class="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm mt-2"
                             >
-                            <input
-                                type="text"
-                                id="tf-name"
-                                name="tf_name"
-                                class="block w-full py-2 px-3 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                                placeholder="Enter tf symbol"
-                            />
+                                <option value="select_tf">---Select Transcription Factor---</option>
+                                {% for tf in analysis.tfs %}
+                                    <option value="{{ tf }}">{{ tf }}</option>
+                                {% endfor %}
+                            </select>
                         </div>
                     </div>
 
