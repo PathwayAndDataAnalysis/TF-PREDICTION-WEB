@@ -1,22 +1,24 @@
+import os
+
+import math
 import numpy as np
 import pandas as pd
 from flask import current_app
-from scipy.stats import zscore, norm
 from joblib import Parallel, delayed  # For parallel processing
-from tqdm.auto import tqdm  # For progress bar
-from statsmodels.stats.multitest import multipletests
-import os
-import math
-
 from scipy.sparse import issparse
+from scipy.stats import zscore, norm
+from statsmodels.stats.multitest import multipletests
+from tqdm.auto import tqdm  # For progress bar
 
 
 ###############################################################################
 #         Benjamini-Hochberg FDR correction function                          #
 ###############################################################################
 
-def bh_fdr_correction(p_value_df: pd.DataFrame, alpha: float = 0.05) -> tuple[
-    pd.DataFrame, pd.DataFrame]:
+
+def bh_fdr_correction(
+    p_value_df: pd.DataFrame, alpha: float = 0.05
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Performs Benjamini-Hochberg FDR correction on p-values from a file
     and returns both adjusted p-values and rejection status.
@@ -25,12 +27,12 @@ def bh_fdr_correction(p_value_df: pd.DataFrame, alpha: float = 0.05) -> tuple[
     """
     p_value_df.dropna(axis=1, how="all", inplace=True)
 
-    df_adjusted_pvals = pd.DataFrame(index=p_value_df.index,
-                                     columns=p_value_df.columns,
-                                     dtype=float)  # For q-values
-    df_reject_status = pd.DataFrame(index=p_value_df.index,
-                                    columns=p_value_df.columns,
-                                    dtype='boolean')  # For True/False/NA
+    df_adjusted_pvals = pd.DataFrame(
+        index=p_value_df.index, columns=p_value_df.columns, dtype=float
+    )  # For q-values
+    df_reject_status = pd.DataFrame(
+        index=p_value_df.index, columns=p_value_df.columns, dtype="boolean"
+    )  # For True/False/NA
 
     for tf_name in p_value_df.columns:
         original_pvals_for_tf = p_value_df[tf_name].dropna()
@@ -42,7 +44,7 @@ def bh_fdr_correction(p_value_df: pd.DataFrame, alpha: float = 0.05) -> tuple[
             pvals=original_pvals_for_tf.values,
             alpha=alpha,
             method="fdr_bh",
-            is_sorted=False
+            is_sorted=False,
         )
 
         df_adjusted_pvals.loc[original_pvals_for_tf.index, tf_name] = corrected_pvals
@@ -51,10 +53,10 @@ def bh_fdr_correction(p_value_df: pd.DataFrame, alpha: float = 0.05) -> tuple[
     return df_adjusted_pvals, df_reject_status
 
 
-
 ###############################################################################
 #                               Helper functions                              #
 ###############################################################################
+
 
 def std_dev_mean_norm_rank(n_population: int, k_sample: int) -> float:
     """Return σₙ,ₖ – the analytic SD of the mean of *k* normalised ranks.
@@ -76,20 +78,18 @@ def std_dev_mean_norm_rank(n_population: int, k_sample: int) -> float:
         return 0.0  # No variability – we sampled everything.
 
     var = ((n_population + 1) * (n_population - k_sample)) / (
-            12 * n_population ** 2 * k_sample
+        12 * n_population**2 * k_sample
     )
     return math.sqrt(max(var, 0.0))
-
 
 
 ###############################################################################
 #                      Per-cell processing function (for parallelization)     #
 ###############################################################################
 
+
 def _process_single_cell(
-        cell_name: str,
-        expression_series: pd.Series,
-        priors_df: pd.DataFrame
+    cell_name: str, expression_series: pd.Series, priors_df: pd.DataFrame
 ) -> tuple[str, dict[str, float]]:
     """
     Processes a single cell's expression data to infer TF activity.
@@ -137,30 +137,30 @@ def _process_single_cell(
     tf_summary["Sigma_n_k"] = tf_summary["AvailableTargets"].apply(
         lambda k: std_dev_mean_norm_rank(n_genes, k)
     )
-    tf_summary["Z"] = (tf_summary["RankMean"] - 0.5) / tf_summary[
-        "Sigma_n_k"
-    ].replace(0, np.nan)
+    tf_summary["Z"] = (tf_summary["RankMean"] - 0.5) / tf_summary["Sigma_n_k"].replace(
+        0, np.nan
+    )
     tf_summary["P_two_tailed"] = np.where(
         tf_summary["Z"].abs() < 0.5,
         2 * norm.cdf(tf_summary["Z"].abs()),
-        2 * norm.sf(tf_summary["Z"].abs())
+        2 * norm.sf(tf_summary["Z"].abs()),
     )
 
     # Create a dictionary of scores for this cell
     cell_scores_dict = pd.Series(
-        tf_summary["P_two_tailed"].values,
-        index=tf_summary["Regulator"]
+        tf_summary["P_two_tailed"].values, index=tf_summary["Regulator"]
     ).to_dict()
 
     return cell_name, cell_scores_dict
-
 
 
 def run_tf_analysis(
     user_id, analysis_id, analysis_data, adata, update_analysis_status_fn
 ):
     try:
-        update_analysis_status_fn(user_id=user_id, analysis_id=analysis_id, status="Running TF analysis")
+        update_analysis_status_fn(
+            user_id=user_id, analysis_id=analysis_id, status="Running TF analysis"
+        )
         n_jobs = 4
         current_app.logger.info(
             f"[TF_ANALYSIS] Running TF analysis for user '{user_id}', analysis '{analysis_id}'."
@@ -177,13 +177,20 @@ def run_tf_analysis(
         X[X == 0] = np.nan
         print("Calculating Z-scores...")
         z_mat = zscore(X, axis=1, nan_policy="omit")
-        z_df = pd.DataFrame(z_mat, index=adata.obs_names,
-                            columns=adata.var_names)  # TODO: Save z-score and ranks in file
+        z_df = pd.DataFrame(z_mat, index=adata.obs_names, columns=adata.var_names)
+
+        z_scores_path = os.path.join(
+            analysis_data.get("results_path", ""), "z_scores.tsv"
+        )
+        print(f"Saving Z-scores to {z_scores_path}...")
+        z_df.to_csv(z_scores_path, sep="\t", index=True)
 
         # ───── Load TF‑target priors ──────────────────────────────────────────────
         print("Loading TF-target priors...")
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        priors = pd.read_csv(os.path.join(script_dir, "..", "prior_data", "causal_priors.tsv"), sep="\t")
+        priors = pd.read_csv(
+            os.path.join(script_dir, "..", "prior_data", "causal_priors.tsv"), sep="\t"
+        )
         expected_cols = {"Regulator", "TargetGene", "RegulatoryEffect"}
         if not expected_cols.issubset(priors.columns):
             raise ValueError(f"Prior file must contain columns {expected_cols}")
@@ -203,7 +210,8 @@ def run_tf_analysis(
             print("No cells to process.")
         else:
             print(
-                f"Starting TF activity inference for {num_cells} cells using {n_jobs if n_jobs > 0 else 'all available'} cores...")
+                f"Starting TF activity inference for {num_cells} cells using {n_jobs if n_jobs > 0 else 'all available'} cores..."
+            )
 
             # Prepare arguments for each parallel task
             # Each task processes one cell: (cell_name, expression_series_for_that_cell, priors_dataframe)
@@ -213,7 +221,7 @@ def run_tf_analysis(
                 delayed(_process_single_cell)(
                     cell_name,
                     z_df.loc[cell_name],  # Pass the expression series for the cell
-                    priors  # Pass the (entire) priors DataFrame
+                    priors,  # Pass the (entire) priors DataFrame
                 )
                 for cell_name in z_df.index
             ]
@@ -235,7 +243,9 @@ def run_tf_analysis(
 
             # ───── Aggregate results ───────────────────────────────────────────────
             print("\nAggregating results...")
-            for cell_name, scores_dict in tqdm(cell_results_list, desc="Aggregating scores"):
+            for cell_name, scores_dict in tqdm(
+                cell_results_list, desc="Aggregating scores"
+            ):
                 if scores_dict:  # If the dictionary is not empty
                     for regulator, p_value in scores_dict.items():
                         if regulator in result.columns:
@@ -251,14 +261,25 @@ def run_tf_analysis(
         result.to_csv(p_values_path, sep="\t", index=True)
 
         # ───── Run Benjamini Hotchberg FDR Correction ────────────────────────────────
-        update_analysis_status_fn(user_id=user_id, analysis_id=analysis_id, status="Running BH FDR correction", tfs=result.columns.tolist(), pvalues_path=p_values_path)
+        update_analysis_status_fn(
+            user_id=user_id,
+            analysis_id=analysis_id,
+            status="Running BH FDR correction",
+            tfs=result.columns.tolist(),
+            pvalues_path=p_values_path,
+        )
         print("Running Benjamini-Hochberg FDR correction...")
         _, reject = bh_fdr_correction(result)
         bh_reject_path = os.path.join(result_path, "bh_reject.tsv")
         print(f"Saving FDR results to {bh_reject_path}...")
         reject.to_csv(bh_reject_path, sep="\t", index=True)
 
-        update_analysis_status_fn(user_id=user_id, analysis_id=analysis_id, status="Completed", bh_reject_path=bh_reject_path)
+        update_analysis_status_fn(
+            user_id=user_id,
+            analysis_id=analysis_id,
+            status="Completed",
+            bh_reject_path=bh_reject_path,
+        )
         current_app.logger.info(
             f"[TF_ANALYSIS] TF analysis completed for user '{user_id}', analysis '{analysis_id}'."
         )

@@ -8,7 +8,7 @@ from app import get_file_path
 
 
 def run_umap_pipeline(
-        user_id, analysis_id, analysis_data, update_status_fn, run_analysis_fn
+    user_id, analysis_id, analysis_data, update_status_fn, run_analysis_fn
 ):
     try:
         current_app.logger.info(
@@ -20,7 +20,7 @@ def run_umap_pipeline(
         metadata_cols = []
         if gene_expr["source"] == "h5ad":
             current_app.logger.info(
-                f"[UMAP] Loading .h5ad file: {get_file_path(gene_expr["h5ad_filename"], user_id)}"
+                f"[UMAP] Loading .h5ad file: {get_file_path(gene_expr['h5ad_filename'], user_id)}"
             )
             adata = sc.read_h5ad(get_file_path(gene_expr["h5ad_filename"], user_id))
             # Save metadata obs_keys in analysis
@@ -33,12 +33,16 @@ def run_umap_pipeline(
             current_app.logger.info(
                 f"[UMAP] Loading counts file: {get_file_path(gene_expr['counts_filename'], user_id)}"
             )
-            counts = pd.read_csv(get_file_path(gene_expr["counts_filename"], user_id), index_col=0)
+            counts = pd.read_csv(
+                get_file_path(gene_expr["counts_filename"], user_id), index_col=0
+            )
             if gene_expr["metadata_filename"]:
                 current_app.logger.info(
                     f"[UMAP] Loading metadata file: {get_file_path(gene_expr['metadata_filename'], user_id)}"
                 )
-                meta = pd.read_csv(get_file_path(gene_expr["metadata_filename"], user_id), index_col=0)
+                meta = pd.read_csv(
+                    get_file_path(gene_expr["metadata_filename"], user_id), index_col=0
+                )
                 adata = sc.AnnData(counts, obs=meta)
                 metadata_cols = adata.obs_keys()
             else:
@@ -126,7 +130,9 @@ def run_umap_pipeline(
         current_app.logger.info(
             f"[UMAP] UMAP pipeline completed successfully for analysis '{analysis_id}'."
         )
-        update_status_fn(user_id, analysis_id, "Completed", umap_csv_path, metadata_cols)
+        update_status_fn(
+            user_id, analysis_id, "Completed", umap_csv_path, metadata_cols
+        )
 
         # 5. Run analysis function
         current_app.logger.info(
@@ -137,10 +143,9 @@ def run_umap_pipeline(
             user_id=user_id,
             analysis_id=analysis_id,
             analysis_data=analysis_data,
-            adata = adata,
-            update_analysis_status_fn=update_status_fn
+            adata=adata,
+            update_analysis_status_fn=update_status_fn,
         )
-
 
     except Exception as e:
         current_app.logger.error(

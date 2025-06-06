@@ -1,11 +1,11 @@
 import os
 import shutil  # For deleting analysis directories
 import uuid  # For unique analysis IDs
-from collections import defaultdict
 from datetime import datetime  # For timestamps
 
 import numpy as np
 import pandas as pd
+import scanpy as sc
 from flask import (
     Blueprint,
     render_template,
@@ -16,7 +16,6 @@ from flask import (
     current_app,
     jsonify,
 )
-import scanpy as sc
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -36,7 +35,6 @@ from .utils import run_in_background, update_analysis_status
 # Create Blueprints
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 main_bp = Blueprint("main_routes", __name__)  # No prefix for main app routes like index
-
 
 # Define constants for column names
 CLUSTER_COL = "Cluster"
@@ -199,7 +197,7 @@ def upload_data():
                     )
     else:
         flash(
-            f'File type not allowed or file error. Allowed: {", ".join(current_app.config["ALLOWED_EXTENSIONS"])}',
+            f"File type not allowed or file error. Allowed: {', '.join(current_app.config['ALLOWED_EXTENSIONS'])}",
             "error",
         )
 
@@ -420,7 +418,7 @@ def create_analysis():
             analysis_id,
             new_analysis,
             update_status_fn=update_analysis_status,
-            run_analysis_fn=run_tf_analysis
+            run_analysis_fn=run_tf_analysis,
         )
 
     flash(f'Analysis "{analysis_name}" created successfully and is pending.', "success")
@@ -633,6 +631,7 @@ def get_layout_and_metadata_dfs(analysis, user_id):
         metadata_df = pd.DataFrame(adata.obs)
     return plot_df, metadata_df
 
+
 def get_layout_and_bh_reject_df(analysis, user_id):
     """Return plot_df and tfs_df for the given analysis."""
     layout_source = analysis.get("inputs", {}).get("layout", {}).get("source")
@@ -650,10 +649,14 @@ def get_layout_and_bh_reject_df(analysis, user_id):
     return plot_df, bh_reject
 
 
-def generate_colored_traces(analysis, plot_df, plot_type="umap_plot", cluster_col="Cluster", tf_activity=None):
+def generate_colored_traces(
+    analysis, plot_df, plot_type="umap_plot", cluster_col="Cluster", tf_activity=None
+):
     if plot_type.lower() == "umap_plot":
         x_col, y_col = UMAP1_COL, UMAP2_COL
-        title = f"UMAP Plot Colored by {cluster_col if not tf_activity else tf_activity}"
+        title = (
+            f"UMAP Plot Colored by {cluster_col if not tf_activity else tf_activity}"
+        )
     elif plot_type.lower() == "pca_plot":
         x_col, y_col = PCA1_COL, PCA2_COL
         title = f"PCA Plot Colored by {cluster_col if not tf_activity else tf_activity}"
@@ -667,7 +670,9 @@ def generate_colored_traces(analysis, plot_df, plot_type="umap_plot", cluster_co
         plot_df["pvalues"] = p_values[tf_activity]
 
         mask = plot_df[tf_activity] == True
-        plot_df.loc[mask, tf_activity] = np.where(plot_df.loc[mask, "pvalues"] < 0, "Inactive", "Active")
+        plot_df.loc[mask, tf_activity] = np.where(
+            plot_df.loc[mask, "pvalues"] < 0, "Inactive", "Active"
+        )
         plot_df[tf_activity] = plot_df[tf_activity].fillna("NaN")
         plot_df[tf_activity] = plot_df[tf_activity].replace(False, "Insignificant")
 
@@ -675,7 +680,7 @@ def generate_colored_traces(analysis, plot_df, plot_type="umap_plot", cluster_co
             "Active": "red",
             "Inactive": "blue",
             "Insignificant": "gray",
-            "NaN": "gray"
+            "NaN": "gray",
         }
         for cluster in unique_clusters.keys():
             traces.append(
@@ -689,7 +694,7 @@ def generate_colored_traces(analysis, plot_df, plot_type="umap_plot", cluster_co
                     "marker": {
                         "size": 4,
                         "opacity": 0.5,
-                        "color": unique_clusters[cluster]
+                        "color": unique_clusters[cluster],
                     },
                 }
             )
@@ -778,7 +783,9 @@ def get_metadata_color_by(analysis_id):
         plot_df["Cluster"] = plot_df["Cluster"].astype(str)
 
         # Choose columns based on plot_type
-        traces, title, x_col, y_col = generate_colored_traces(analysis=analysis, plot_df=plot_df, plot_type=plot_type)
+        traces, title, x_col, y_col = generate_colored_traces(
+            analysis=analysis, plot_df=plot_df, plot_type=plot_type
+        )
         layout = {
             "title": title,
             "xaxis": {"title": x_col},
@@ -801,7 +808,6 @@ def get_metadata_color_by(analysis_id):
             exc_info=True,
         )
         return jsonify({"error": "Internal server error."}), 500
-
 
 
 @main_bp.route("/analysis/tf-activity/<analysis_id>", methods=["POST"])
@@ -854,7 +860,9 @@ def get_tf_color_by(analysis_id):
             )
             return (
                 jsonify(
-                    {"error": f"TF activity '{tf_activity}' not found in BH reject file."}
+                    {
+                        "error": f"TF activity '{tf_activity}' not found in BH reject file."
+                    }
                 ),
                 400,
             )
@@ -862,7 +870,12 @@ def get_tf_color_by(analysis_id):
         plot_df = plot_df.merge(
             bh_reject[tf_activity].astype(object), left_index=True, right_index=True
         )
-        traces, title, x_col, y_col = generate_colored_traces(analysis=analysis, plot_df=plot_df, plot_type=plot_type, tf_activity=tf_activity)
+        traces, title, x_col, y_col = generate_colored_traces(
+            analysis=analysis,
+            plot_df=plot_df,
+            plot_type=plot_type,
+            tf_activity=tf_activity,
+        )
         layout = {
             "title": title,
             "xaxis": {"title": x_col},

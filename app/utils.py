@@ -25,7 +25,15 @@ def run_in_background(fn, *args, **kwargs):
 
 
 def update_analysis_status(
-        user_id, analysis_id, status, umap_csv_path=None, metadata_cols=None, tfs=None, pvalues_path=None, bh_reject_path=None, error=None
+    user_id,
+    analysis_id,
+    status,
+    umap_csv_path=None,
+    metadata_cols=None,
+    tfs=None,
+    pvalues_path=None,
+    bh_reject_path=None,
+    error=None,
 ):
     if metadata_cols is None:
         metadata_cols = []
