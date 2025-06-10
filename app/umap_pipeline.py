@@ -143,7 +143,7 @@ def run_umap_pipeline(
             user_id=user_id,
             analysis_id=analysis_id,
             analysis_data=analysis_data,
-            adata=adata,
+            adata=adata,  # adata is already filtered
             update_analysis_status_fn=update_status_fn,
         )
 

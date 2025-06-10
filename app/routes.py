@@ -666,21 +666,15 @@ def generate_colored_traces(
 
     traces = []
     if tf_activity:
-        p_values = pd.read_csv(analysis.get("pvalues_path"), sep="\t", index_col=0)
-        plot_df["pvalues"] = p_values[tf_activity]
-
-        mask = plot_df[tf_activity] == True
-        plot_df.loc[mask, tf_activity] = np.where(
-            plot_df.loc[mask, "pvalues"] < 0, "Inactive", "Active"
+        plot_df[tf_activity] = plot_df[tf_activity].replace(
+            {1: "Active", -1: "Inactive", 0: "Insignificant", np.nan: "Not_Enough_Data"}
         )
-        plot_df[tf_activity] = plot_df[tf_activity].fillna("NaN")
-        plot_df[tf_activity] = plot_df[tf_activity].replace(False, "Insignificant")
 
         unique_clusters = {
             "Active": "red",
             "Inactive": "blue",
             "Insignificant": "gray",
-            "NaN": "gray",
+            "Not_Enough_Data": "yellow",
         }
         for cluster in unique_clusters.keys():
             traces.append(

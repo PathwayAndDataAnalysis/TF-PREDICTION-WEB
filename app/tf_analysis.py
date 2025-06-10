@@ -17,7 +17,7 @@ from tqdm.auto import tqdm  # For progress bar
 
 
 def bh_fdr_correction(
-    p_value_df: pd.DataFrame, alpha: float = 0.05
+        p_value_df: pd.DataFrame, alpha: float = 0.05
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Performs Benjamini-Hochberg FDR correction on p-values from a file
@@ -78,7 +78,7 @@ def std_dev_mean_norm_rank(n_population: int, k_sample: int) -> float:
         return 0.0  # No variability – we sampled everything.
 
     var = ((n_population + 1) * (n_population - k_sample)) / (
-        12 * n_population**2 * k_sample
+            12 * n_population ** 2 * k_sample
     )
     return math.sqrt(max(var, 0.0))
 
@@ -89,7 +89,7 @@ def std_dev_mean_norm_rank(n_population: int, k_sample: int) -> float:
 
 
 def _process_single_cell(
-    cell_name: str, expression_series: pd.Series, priors_df: pd.DataFrame
+        cell_name: str, expression_series: pd.Series, priors_df: pd.DataFrame
 ) -> tuple[str, dict[str, float]]:
     """
     Processes a single cell's expression data to infer TF activity.
@@ -109,6 +109,7 @@ def _process_single_cell(
     # Merge ranks into a *copy* of priors_df (avoid in‑place edits)
     # .merge() creates a new DataFrame, so priors_df itself is not modified.
     p = priors_df.merge(rank_df, on="TargetGene", how="left")
+    p = p[p["Rank"].notna()]
 
     # Invert rank for repressors (RegulatoryEffect == 0)
     max_rank_val = (n_genes - 0.5) / n_genes
@@ -116,7 +117,7 @@ def _process_single_cell(
         p["RegulatoryEffect"].eq(0),
         max_rank_val - p["Rank"],
         p["Rank"],
-    )
+    )  # AdjustedRank is 1 - Rank for repressors
 
     # Summarise per TF
     tf_summary = (
@@ -128,6 +129,10 @@ def _process_single_cell(
         .reset_index()
     )
     tf_summary = tf_summary[tf_summary["AvailableTargets"] > 0]
+    # Create new column, If RankMean is <0.5, 1 else -1
+    tf_summary["PValueDir"] = np.where(
+        tf_summary["RankMean"] < 0.5, 1, -1
+    )
 
     # If tf_summary is empty after filtering, no TFs to score for this cell
     if tf_summary.empty:
@@ -145,6 +150,8 @@ def _process_single_cell(
         2 * norm.cdf(tf_summary["Z"].abs()),
         2 * norm.sf(tf_summary["Z"].abs()),
     )
+    # Add PValueDir information to the P_two_tailed column
+    tf_summary["P_two_tailed"] *= tf_summary["PValueDir"]
 
     # Create a dictionary of scores for this cell
     cell_scores_dict = pd.Series(
@@ -155,7 +162,7 @@ def _process_single_cell(
 
 
 def run_tf_analysis(
-    user_id, analysis_id, analysis_data, adata, update_analysis_status_fn
+        user_id, analysis_id, analysis_data, adata, update_analysis_status_fn
 ):
     try:
         update_analysis_status_fn(
@@ -244,7 +251,7 @@ def run_tf_analysis(
             # ───── Aggregate results ───────────────────────────────────────────────
             print("\nAggregating results...")
             for cell_name, scores_dict in tqdm(
-                cell_results_list, desc="Aggregating scores"
+                    cell_results_list, desc="Aggregating scores"
             ):
                 if scores_dict:  # If the dictionary is not empty
                     for regulator, p_value in scores_dict.items():
@@ -256,6 +263,13 @@ def run_tf_analysis(
 
         # ───── Save results ───────────────────────────────────────────────────────
         result_path = analysis_data.get("results_path", None)
+        p_value_sign = result.copy()
+        p_value_sign = p_value_sign.map(
+            lambda x: 1 if x > 0 else (-1 if x < 0 else np.nan)
+        )
+        result = result.map(
+            lambda x: abs(x) if pd.notna(x) else np.nan
+        )
         p_values_path = os.path.join(result_path, "p_values.tsv")
         print(f"Saving results to {p_values_path}...")
         result.to_csv(p_values_path, sep="\t", index=True)
@@ -265,19 +279,30 @@ def run_tf_analysis(
             user_id=user_id,
             analysis_id=analysis_id,
             status="Running BH FDR correction",
-            tfs=result.columns.tolist(),
+            # tfs=result.columns.tolist(),
             pvalues_path=p_values_path,
         )
         print("Running Benjamini-Hochberg FDR correction...")
         _, reject = bh_fdr_correction(result)
+        # Replace True with 1 and False with -1 others with 0
+        reject = reject.map(
+            lambda x: 1 if x is True else (4 if x is False else 5)
+        )
+        reject = reject.multiply(p_value_sign, axis=0)
+        reject = reject.replace({4: 0, 5: np.nan, -4: 0, -5: np.nan}).astype("Int64")
+        # 1 -> Activated, -1 -> Inhibited, 0 -> Not significant, and NaN -> Not Enough Data
         bh_reject_path = os.path.join(result_path, "bh_reject.tsv")
         print(f"Saving FDR results to {bh_reject_path}...")
         reject.to_csv(bh_reject_path, sep="\t", index=True)
+
+        # Count how many Trues for each TF and sort tfs by this count
+        tf_counts = reject.sum().sort_values(ascending=False)
 
         update_analysis_status_fn(
             user_id=user_id,
             analysis_id=analysis_id,
             status="Completed",
+            tfs=tf_counts.index.tolist(),
             bh_reject_path=bh_reject_path,
         )
         current_app.logger.info(
