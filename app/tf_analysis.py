@@ -1,5 +1,5 @@
 import os
-
+os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
 import math
 import numpy as np
 import pandas as pd
@@ -9,6 +9,9 @@ from scipy.sparse import issparse
 from scipy.stats import zscore, norm
 from statsmodels.stats.multitest import multipletests
 from tqdm.auto import tqdm  # For progress bar
+
+# CORES_USED = 1 # For debugging, use a single core
+CORES_USED = max(1, int(os.cpu_count() * 0.9))  # Use 90% of available cores
 
 
 ###############################################################################
@@ -130,7 +133,7 @@ def _process_single_cell(
     )
     tf_summary = tf_summary[tf_summary["AvailableTargets"] > 0]
     # Create new column, If RankMean is <0.5, 1 else -1
-    tf_summary["PValueDir"] = np.where(
+    tf_summary["ActivationDir"] = np.where(
         tf_summary["RankMean"] < 0.5, 1, -1
     )
 
@@ -150,8 +153,8 @@ def _process_single_cell(
         2 * norm.cdf(tf_summary["Z"].abs()),
         2 * norm.sf(tf_summary["Z"].abs()),
     )
-    # Add PValueDir information to the P_two_tailed column
-    tf_summary["P_two_tailed"] *= tf_summary["PValueDir"]
+    # Add ActivationDir information to the P_two_tailed column
+    tf_summary["P_two_tailed"] *= tf_summary["ActivationDir"]
 
     # Create a dictionary of scores for this cell
     cell_scores_dict = pd.Series(
@@ -168,7 +171,7 @@ def run_tf_analysis(
         update_analysis_status_fn(
             user_id=user_id, analysis_id=analysis_id, status="Running TF analysis"
         )
-        n_jobs = 4
+
         current_app.logger.info(
             f"[TF_ANALYSIS] Running TF analysis for user '{user_id}', analysis '{analysis_id}'."
         )
@@ -217,7 +220,7 @@ def run_tf_analysis(
             print("No cells to process.")
         else:
             print(
-                f"Starting TF activity inference for {num_cells} cells using {n_jobs if n_jobs > 0 else 'all available'} cores..."
+                f"Starting TF activity inference for {num_cells} cells using {CORES_USED if CORES_USED > 0 else 'all available'} cores..."
             )
 
             # Prepare arguments for each parallel task
@@ -236,15 +239,15 @@ def run_tf_analysis(
             # Run tasks in parallel
             # `tqdm` provides a progress bar
             # `backend="loky"` is robust and default for joblib in many cases, good for cross-platform
-            if n_jobs == 1:  # Useful for debugging
-                print("Running sequentially (n_jobs=1)...")
+            if CORES_USED == 1:  # Useful for debugging
+                print("Running sequentially (CORES_USED=1)...")
                 cell_results_list = [
                     _process_single_cell(cell_name, z_df.loc[cell_name], priors)
                     for cell_name in tqdm(z_df.index, desc="Processing cells")
                 ]
             else:
-                print(f"Running in parallel with n_jobs={n_jobs}...")
-                cell_results_list = Parallel(n_jobs=n_jobs, backend="loky", verbose=5)(
+                print(f"Running in parallel with CORES_USED={CORES_USED}...")
+                cell_results_list = Parallel(n_jobs=CORES_USED, backend="loky", verbose=5)(
                     tqdm(tasks, desc="Processing cells")
                 )
 
@@ -263,8 +266,8 @@ def run_tf_analysis(
 
         # ───── Save results ───────────────────────────────────────────────────────
         result_path = analysis_data.get("results_path", None)
-        p_value_sign = result.copy()
-        p_value_sign = p_value_sign.map(
+        activation_df = result.copy()
+        activation_df = activation_df.map(
             lambda x: 1 if x > 0 else (-1 if x < 0 else np.nan)
         )
         result = result.map(
@@ -279,24 +282,21 @@ def run_tf_analysis(
             user_id=user_id,
             analysis_id=analysis_id,
             status="Running BH FDR correction",
-            # tfs=result.columns.tolist(),
             pvalues_path=p_values_path,
         )
         print("Running Benjamini-Hochberg FDR correction...")
         _, reject = bh_fdr_correction(result)
+        tf_counts = reject.sum().sort_values(ascending=False)
         # Replace True with 1 and False with -1 others with 0
         reject = reject.map(
             lambda x: 1 if x is True else (4 if x is False else 5)
         )
-        reject = reject.multiply(p_value_sign, axis=0)
+        reject = reject.multiply(activation_df, axis=0)
         reject = reject.replace({4: 0, 5: np.nan, -4: 0, -5: np.nan}).astype("Int64")
         # 1 -> Activated, -1 -> Inhibited, 0 -> Not significant, and NaN -> Not Enough Data
         bh_reject_path = os.path.join(result_path, "bh_reject.tsv")
         print(f"Saving FDR results to {bh_reject_path}...")
         reject.to_csv(bh_reject_path, sep="\t", index=True)
-
-        # Count how many Trues for each TF and sort tfs by this count
-        tf_counts = reject.sum().sort_values(ascending=False)
 
         update_analysis_status_fn(
             user_id=user_id,

@@ -10,7 +10,9 @@ const colorBySelect = document.getElementById("color-by");
 const metadataColSelectionDiv = document.getElementById("metadata-column-selection-div");
 const metadataColNameSelect = document.getElementById("metadata-column-name");
 const tfSelectionDiv = document.getElementById("tf-selection-div");
+const tfManualEntryDiv = document.getElementById("tf-manual-entry-div");
 const tfNameSelect = document.getElementById("tf-name-select");
+const tfManualEntryInput = document.getElementById("tf-manual-entry-input");
 const pointSizeSlider = document.getElementById("point-size");
 const pointSizeValue = document.getElementById("point-size-value");
 const opacitySlider = document.getElementById("opacity");
@@ -59,13 +61,16 @@ if (colorBySelect) {
 	colorBySelect.addEventListener("change", function () {
 		if (this.value === "tf_activity") {
 			tfSelectionDiv.classList.remove("hidden");
+			tfManualEntryDiv.classList.remove("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
 		} else if (this.value === "metadata_columns") {
 			tfSelectionDiv.classList.add("hidden");
+			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.remove("hidden");
 		}
 		else {
 			tfSelectionDiv.classList.add("hidden");
+			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
 		}
 	});
@@ -147,6 +152,29 @@ tfNameSelect.addEventListener("change", function () {
 	}
 });
 
+tfManualEntryInput.addEventListener("keypress", function (event) {
+	if (event.key === "Enter") {
+		let tf_name = this.value.trim().toUpperCase();
+		if (tf_name) {
+			const apiUrl = `/analysis/tf-activity/${window.analysis.id}`;
+
+			getPlotData(
+				tf_name, apiUrl,
+				"POST",
+				{selected_tf: tf_name, plot_type: plotTypeSelect.value}
+			).then(() => {
+				console.log("TF activity plot loaded successfully.");
+			})
+				.catch((err) => {
+					console.error("Failed to load plot:", err);
+					alert("Failed to load plot. Please try again later.");
+				});
+		} else {
+			alert("Please enter a valid TF name.");
+		}
+	}
+});
+
 if (pointSizeSlider && pointSizeValue) {
 	pointSizeSlider.addEventListener("input", function (e) {
 		Plotly.restyle("scatterPlot", { "marker.size": Number(e.target.value) });
@@ -177,7 +205,7 @@ if (plotConfigForm) {
 		console.log("Plot configuration updated:", config);
 		// Call a function to re-render the plot with new config
 		// e.g., updateUmapPlot(config);
-		alert("Plot update functionality not yet implemented.");
+		// alert("Plot update functionality not yet implemented.");
 	});
 }
 
