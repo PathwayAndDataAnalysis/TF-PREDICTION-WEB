@@ -117,9 +117,7 @@ def run_umap_pipeline(
             current_app.logger.info("[UMAP] Adding cluster labels from AnnData.obs.")
             umap_df["Cluster"] = adata.obs["Cluster"]
         else:
-            current_app.logger.info(
-                "[UMAP] No cluster labels found, assigning default value 0."
-            )
+            current_app.logger.info("[UMAP] No cluster labels found, assigning default value 0.")
             umap_df["Cluster"] = 0  # or assign as needed
 
         umap_csv_path = os.path.join(result_path, "umap_coordinates.csv")
@@ -135,9 +133,7 @@ def run_umap_pipeline(
         )
 
         # 5. Run analysis function
-        current_app.logger.info(
-            f"[UMAP] Running analysis function for analysis '{analysis_id}'."
-        )
+        current_app.logger.info(f"[UMAP] Running analysis function for analysis '{analysis_id}'.")
 
         run_analysis_fn(
             user_id=user_id,

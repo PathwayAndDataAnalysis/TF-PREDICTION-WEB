@@ -80,12 +80,20 @@
                     <select id="raw_counts_file" name="raw_counts_file"
                         class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
                         <option value="">-- Select a counts file --</option>
-                        {% for file_info in user_files %} {# We might need to filter for typical count file
-                        extensions like .csv, .tsv, .txt #}
+                        {% for file_info in user_files %}
                         <option value="{{ file_info.filename }}">
                             {{ file_info.original_filename | default(file_info.filename, true) }}
                         </option>
                         {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="species" class="block text-gray-700 text-sm font-bold mb-1">Select Species:</label>
+                    <select id="species" name="species"
+                        class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
+                        <option value="">-- Select a species --</option>
+                        <option value="human">Human</option>
+                        <option value="mouse">Mouse</option>
                     </select>
                 </div>
                 <div>
@@ -94,8 +102,7 @@
                     <select id="metadata_file" name="metadata_file"
                         class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
                         <option value="">-- Select a metadata file --</option>
-                        {% for file_info in user_files %} {# We might need to filter for typical metadata file
-                        extensions #}
+                        {% for file_info in user_files %}
                         <option value="{{ file_info.filename }}">
                             {{ file_info.original_filename | default(file_info.filename, true) }}
                         </option>
