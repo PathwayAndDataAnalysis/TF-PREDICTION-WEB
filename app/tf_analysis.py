@@ -1,5 +1,4 @@
 import os
-os.environ['OBJC_DISABLE_INITIALIZE_FORK_SAFETY'] = 'YES'
 import math
 import numpy as np
 import pandas as pd
@@ -93,7 +92,7 @@ def std_dev_mean_norm_rank(n_population: int, k_sample: int) -> float:
 
 def _process_single_cell(
         cell_name: str, expression_series: pd.Series, priors_df: pd.DataFrame
-) -> tuple[str, dict[str, float]]:
+):
     """
     Processes a single cell's expression data to infer TF activity.
     Returns the cell name and a dictionary of TF scores {regulator: p_value}.
@@ -120,7 +119,7 @@ def _process_single_cell(
         p["RegulatoryEffect"].eq(0),
         max_rank_val - p["Rank"],
         p["Rank"],
-    )  # AdjustedRank is 1 - Rank for repressors
+    )  # AdjustedRank is max_rank_val - Rank for repressors
 
     # Summarise per TF
     tf_summary = (
@@ -132,15 +131,15 @@ def _process_single_cell(
         .reset_index()
     )
     tf_summary = tf_summary[tf_summary["AvailableTargets"] > 0]
-    # Create new column, If RankMean is <0.5, 1 else -1
-    tf_summary["ActivationDir"] = np.where(
-        tf_summary["RankMean"] < 0.5, 1, -1
-    )
 
     # If tf_summary is empty after filtering, no TFs to score for this cell
     if tf_summary.empty:
         return cell_name, {}
 
+    # Create new column, If RankMean is <0.5, 1 else -1
+    tf_summary["ActivationDir"] = np.where(
+        tf_summary["RankMean"] < 0.5, 1, -1
+    )
     # Compute σₙ,ₖ, Z‑score, and p‑value
     tf_summary["Sigma_n_k"] = tf_summary["AvailableTargets"].apply(
         lambda k: std_dev_mean_norm_rank(n_genes, k)
@@ -149,18 +148,21 @@ def _process_single_cell(
         0, np.nan
     )
     tf_summary["P_two_tailed"] = np.where(
-        tf_summary["Z"].abs() < 0.5,
-        2 * norm.cdf(tf_summary["Z"].abs()),
-        2 * norm.sf(tf_summary["Z"].abs()),
+        tf_summary["RankMean"] < 0.5,
+        2 * norm.cdf(tf_summary["Z"]),
+        2 * (1 - norm.cdf(tf_summary["Z"])),
     )
-    # Add ActivationDir information to the P_two_tailed column
-    tf_summary["P_two_tailed"] *= tf_summary["ActivationDir"]
+    # tf_summary["P_two_tailed"] = 2 * norm.sf(tf_summary["Z"])
 
-    # Create a dictionary of scores for this cell
-    cell_scores_dict = pd.Series(
-        tf_summary["P_two_tailed"].values, index=tf_summary["Regulator"]
-    ).to_dict()
-
+    # Create a dictionary where each value is a tuple: (p_value, direction)
+    cell_scores_dict = {
+        regulator: (p_value, direction)
+        for regulator, p_value, direction in zip(
+            tf_summary["Regulator"],
+            tf_summary["P_two_tailed"],
+            tf_summary["ActivationDir"],
+        )
+    }
     return cell_name, cell_scores_dict
 
 
@@ -186,7 +188,7 @@ def run_tf_analysis(
         # Treat explicit zero counts as missing for z‑scoring consistency
         X[X == 0] = np.nan
         print("Calculating Z-scores...")
-        z_mat = zscore(X, axis=1, nan_policy="omit")
+        z_mat = zscore(X, axis=0, nan_policy="omit") # across all cells for a single gene (axis=0)
         z_df = pd.DataFrame(z_mat, index=adata.obs_names, columns=adata.var_names)
 
         z_scores_path = os.path.join(
@@ -210,9 +212,10 @@ def run_tf_analysis(
             f"[TF_ANALYSIS] Starting TF analysis for user '{user_id}', analysis '{analysis_id}'."
         )
 
-        # Pre-define columns for the result DataFrame
+        # Pre-define columns for the p_values_df DataFrame
         all_regulators = priors["Regulator"].unique()
-        result = pd.DataFrame(index=z_df.index, columns=all_regulators, dtype=float)
+        p_values_df = pd.DataFrame(index=z_df.index, columns=all_regulators, dtype=float)
+        activation_df = pd.DataFrame(index=z_df.index, columns=all_regulators, dtype=float)
 
         # ───── Parallel processing of cells ───────────────────────────────────────
         num_cells = len(z_df)
@@ -222,11 +225,6 @@ def run_tf_analysis(
             print(
                 f"Starting TF activity inference for {num_cells} cells using {CORES_USED if CORES_USED > 0 else 'all available'} cores..."
             )
-
-            # Prepare arguments for each parallel task
-            # Each task processes one cell: (cell_name, expression_series_for_that_cell, priors_dataframe)
-            # We pass a copy of priors to each worker; it's read-only within the worker.
-            # z_df.loc[cell_name] gives the expression Series for that cell.
             tasks = [
                 delayed(_process_single_cell)(
                     cell_name,
@@ -236,8 +234,7 @@ def run_tf_analysis(
                 for cell_name in z_df.index
             ]
 
-            # Run tasks in parallel
-            # `tqdm` provides a progress bar
+            # Run tasks in parallel, `tqdm` provides a progress bar
             # `backend="loky"` is robust and default for joblib in many cases, good for cross-platform
             if CORES_USED == 1:  # Useful for debugging
                 print("Running sequentially (CORES_USED=1)...")
@@ -251,31 +248,24 @@ def run_tf_analysis(
                     tqdm(tasks, desc="Processing cells")
                 )
 
-            # ───── Aggregate results ───────────────────────────────────────────────
+            # ───── Aggregate results into two separate DataFrames ───────────────────
             print("\nAggregating results...")
             for cell_name, scores_dict in tqdm(
                     cell_results_list, desc="Aggregating scores"
             ):
-                if scores_dict:  # If the dictionary is not empty
-                    for regulator, p_value in scores_dict.items():
-                        if regulator in result.columns:
-                            result.at[cell_name, regulator] = p_value
-                        # else:
-                        # This case should ideally not happen if all_regulators is correctly derived
-                        # print(f"Warning: Regulator '{regulator}' for cell '{cell_name}' not in pre-defined columns. Skipping.")
+                if scores_dict:
+                    # Unpack the (p_value, direction) tuple for each regulator
+                    for regulator, (p_value, direction) in scores_dict.items():
+                        if regulator in p_values_df.columns:
+                            p_values_df.at[cell_name, regulator] = p_value
+                            activation_df.at[cell_name, regulator] = direction
 
         # ───── Save results ───────────────────────────────────────────────────────
         result_path = analysis_data.get("results_path", None)
-        activation_df = result.copy()
-        activation_df = activation_df.map(
-            lambda x: 1 if x > 0 else (-1 if x < 0 else np.nan)
-        )
-        result = result.map(
-            lambda x: abs(x) if pd.notna(x) else np.nan
-        )
+
         p_values_path = os.path.join(result_path, "p_values.tsv")
-        print(f"Saving results to {p_values_path}...")
-        result.to_csv(p_values_path, sep="\t", index=True)
+        print(f"Saving p-values to {p_values_path}...")
+        p_values_df.to_csv(p_values_path, sep="\t", index=True)
 
         # ───── Run Benjamini Hotchberg FDR Correction ────────────────────────────────
         update_analysis_status_fn(
@@ -285,18 +275,20 @@ def run_tf_analysis(
             pvalues_path=p_values_path,
         )
         print("Running Benjamini-Hochberg FDR correction...")
-        _, reject = bh_fdr_correction(result)
+        _, reject = bh_fdr_correction(p_values_df)
         tf_counts = reject.sum().sort_values(ascending=False)
-        # Replace True with 1 and False with -1 others with 0
-        reject = reject.map(
-            lambda x: 1 if x is True else (4 if x is False else 5)
-        )
-        reject = reject.multiply(activation_df, axis=0)
-        reject = reject.replace({4: 0, 5: np.nan, -4: 0, -5: np.nan}).astype("Int64")
-        # 1 -> Activated, -1 -> Inhibited, 0 -> Not significant, and NaN -> Not Enough Data
+
+        final_output = pd.DataFrame(0, index=reject.index, columns=reject.columns)
+        # Where the rejection is True, fill in the direction from activation_df
+        final_output[reject] = activation_df[reject]
+
+        # Propagate NaNs for cells/TFs where analysis couldn't be run
+        final_output[p_values_df.isna()] = np.nan
+        final_output = final_output.astype("Int64")  # Use nullable integer type
+
         bh_reject_path = os.path.join(result_path, "bh_reject.tsv")
         print(f"Saving FDR results to {bh_reject_path}...")
-        reject.to_csv(bh_reject_path, sep="\t", index=True)
+        final_output.to_csv(bh_reject_path, sep="\t", index=True)
 
         update_analysis_status_fn(
             user_id=user_id,
