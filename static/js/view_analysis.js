@@ -19,17 +19,6 @@ const opacitySlider = document.getElementById("opacity");
 const opacityValue = document.getElementById("opacity-value");
 const showLegendCheckbox = document.getElementById("show-legend");
 
-function resetPlotConfig() {
-	if (pointSizeSlider) {
-		pointSizeSlider.value = defaultPointSize;
-		pointSizeValue.textContent = defaultPointSize;
-	}
-	if (opacitySlider) {
-		opacitySlider.value = defaultOpacity;
-		opacityValue.textContent = defaultOpacity;
-	}
-}
-
 plotTypeSelect.addEventListener("change", function () {
 	if (this.value === "umap_plot") {  // UMAP Plot
 		console.log("UMAP plot selected");
@@ -49,6 +38,14 @@ plotTypeSelect.addEventListener("change", function () {
 		getPlotData(this.value, apiUrl)
 		.then(() => {
 			console.log("PCA Plot loaded successfully.");
+
+			colorBySelect.value = "select_cluster_type";
+			tfNameSelect.value = "select_tf";
+			metadataColSelectionDiv.value = "select_metadata_column";
+			colorBySelect.dispatchEvent(new Event("change"));
+			tfSelectionDiv.dispatchEvent(new Event("change"));
+			metadataColSelectionDiv.dispatchEvent(new Event("change"));
+
 		})
 		.catch((err) => {
 			console.error("Failed to load plot:", err);
@@ -101,6 +98,11 @@ function updatePlot(plot_data){
 		plot_data.layout.yaxis = {
 			title: plot_data.layout.yaxis.title,
 		}
+		plot_data.data.forEach(trace => {
+			trace.marker = trace.marker || {};
+			trace.marker.size = pointSizeSlider ? Number(pointSizeSlider.value) : defaultPointSize;
+			trace.marker.opacity = opacitySlider ? Number(opacitySlider.value) : defaultOpacity;
+		});
 
 		Plotly.newPlot("scatterPlot", plot_data.data, plot_data.layout, {
 			responsive: true,
@@ -109,8 +111,6 @@ function updatePlot(plot_data){
 			scrollZoom: true
 		});
 
-		// Reset plot configuration
-		resetPlotConfig();
 	} else {
 		throw new Error("Received data is not in the expected format.");
 	}

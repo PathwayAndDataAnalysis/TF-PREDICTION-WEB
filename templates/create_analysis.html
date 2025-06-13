@@ -10,36 +10,6 @@
                 class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" />
         </div>
 
-        {#
-        <div class="mb-6">
-            #} {#
-            <label class="block text-gray-700 text-sm font-bold mb-2">Select Files for Analysis:</label>#}
-            {# {% if user_files %}#} {#
-            <div class="space-y-2 max-h-60 overflow-y-auto border border-gray-300 rounded-md p-3 bg-gray-50">
-                #} {# {% for file_info in user_files %}#} {#
-                <div class="flex items-center">
-                    #} {#
-                    <input type="checkbox" id="file_{{ loop.index }}" name="selected_files" #} {#
-                        value="{{ file_info.filename }}" #} {#
-                        class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mr-2" />#} {#
-                    <label for="file_{{ loop.index }}" class="text-sm text-gray-700">#} {# {{
-                        file_info.original_filename | default(file_info.filename, true) }} {% if#} {#
-                        file_info.description %}#} {#
-                        <span class="text-xs text-gray-500">({{ file_info.description }})</span>#} {# {% endif
-                        %}#} {# </label>#} {#
-                </div>
-                #} {# {% endfor %}#} {#
-            </div>
-            #} {# {% else %}#} {#
-            <p class="text-sm text-gray-600">
-                #} {# You have no files uploaded. Please#} {#
-                <a href="{{ url_for('main_routes.index') }}#upload-section"
-                    class="text-blue-500 hover:underline">upload#} {# files</a>#} {# first.#} {#
-            </p>
-            #} {# {% endif %}#} {#
-        </div>
-        #}
-
         <!-- Gene Expression Section -->
         <div class="mb-6 p-4 border border-gray-300 rounded-md">
             <h2 class="text-lg font-semibold text-gray-700 mb-3">Gene Expression Data</h2>
@@ -54,8 +24,7 @@
                 <label class="block text-gray-700 text-sm font-bold mb-1">Select .h5ad File:</label>
                 {% if user_files %}
                 <div class="space-y-1 max-h-40 overflow-y-auto border border-gray-200 rounded-md p-2 bg-gray-50">
-                    {% for file_info in user_files %} {# We'll need to filter for .h5ad files here, or adjust
-                    the backend to provide them #} {% if file_info.filename.endswith('.h5ad') %}
+                    {% for file_info in user_files %} {% if file_info.filename.endswith('.h5ad') %}
                     <div class="flex items-center">
                         <input type="radio" id="h5ad_file_{{ loop.index }}" name="selected_h5ad_file"
                             value="{{ file_info.filename }}"
@@ -75,11 +44,10 @@
             <div id="separate_files_section" class="space-y-3">
                 <p class="text-sm text-gray-600 mb-2">If you don't have an.h5ad file, please provide:</p>
                 <div>
-                    <label for="raw_counts_file" class="block text-gray-700 text-sm font-bold mb-1">Select Raw
-                        Counts File:</label>
-                    <select id="raw_counts_file" name="raw_counts_file"
+                    <label for="gene_exp_file" class="block text-gray-700 text-sm font-bold mb-1">Select Gene Expression File:</label>
+                    <select id="gene_exp_file" name="gene_exp_file"
                         class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
-                        <option value="">-- Select a counts file --</option>
+                        <option value="">-- Select a gene expression file --</option>
                         {% for file_info in user_files %}
                         <option value="{{ file_info.filename }}">
                             {{ file_info.original_filename | default(file_info.filename, true) }}
@@ -126,11 +94,10 @@
 
             <div id="2d_layout_selection_section" class="space-y-2 mb-3" style="display: none">
                 <label class="block text-gray-700 text-sm font-bold mb-1">Select 2D Layout File:</label>
-                <select id="layout_file" name="layout_file"
+                <select id="layout_file_2d" name="layout_file_2d"
                     class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
                     <option value="">-- Select a layout file --</option>
-                    {% for file_info in user_files %} {# Filter for layout files if possible, e.g., .csv, .tsv
-                    containing coordinates #}
+                    {% for file_info in user_files %}
                     <option value="{{ file_info.filename }}">
                         {{ file_info.original_filename | default(file_info.filename, true) }}
                     </option>

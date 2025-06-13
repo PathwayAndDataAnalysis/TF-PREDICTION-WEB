@@ -3,14 +3,14 @@ import math
 import numpy as np
 import pandas as pd
 from flask import current_app
-from joblib import Parallel, delayed  # For parallel processing
+from joblib import Parallel, delayed
 from scipy.sparse import issparse
 from scipy.stats import zscore, norm
 from statsmodels.stats.multitest import multipletests
-from tqdm.auto import tqdm  # For progress bar
+from tqdm.auto import tqdm
 
 # CORES_USED = 1 # For debugging, use a single core
-CORES_USED = max(1, int(os.cpu_count() * 0.9))  # Use 90% of available cores
+CORES_USED = max(1, int(os.cpu_count() * 0.8))  # Use 80% of available cores
 
 
 ###############################################################################
@@ -244,7 +244,7 @@ def run_tf_analysis(
                 ]
             else:
                 print(f"Running in parallel with CORES_USED={CORES_USED}...")
-                cell_results_list = Parallel(n_jobs=CORES_USED, backend="loky", verbose=5)(
+                cell_results_list = Parallel(n_jobs=CORES_USED, backend="loky", verbose=2)(
                     tqdm(tasks, desc="Processing cells")
                 )
 

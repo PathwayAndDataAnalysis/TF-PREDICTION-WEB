@@ -62,11 +62,20 @@ def get_file_path(filename, user_id=None):
     Returns the full path to a file in the uploads folder.
     If user_id is provided, returns the path in the user's folder.
     Otherwise, returns the path in the global uploads folder.
+    If the file does not exist, returns None.
+
+    Returns:
+        str or None: The full file path if the file exists, otherwise None.
     """
     upload_folder = get_upload_folder_root()
     if user_id:
-        return os.path.join(upload_folder, user_id, filename)
-    return os.path.join(upload_folder, filename)
+        path = os.path.join(upload_folder, user_id, filename)
+    else:
+        path = os.path.join(upload_folder, filename)
+    if os.path.exists(path):
+        return path
+    else:
+        raise FileNotFoundError(f"File {path} does not exist")
 
 
 @login_manager.user_loader

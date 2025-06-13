@@ -1,7 +1,7 @@
 import os
 import shutil  # For deleting analysis directories
 import uuid  # For unique analysis IDs
-from datetime import datetime  # For timestamps
+from datetime import datetime, timezone  # For timestamps
 
 import numpy as np
 import pandas as pd
@@ -120,7 +120,7 @@ def index():
         "index.html",
         user_files=user_files_info,
         current_user_analyses=user_analyses_sorted,
-    )  # Pass analyses to the template
+    )
 
 
 @main_bp.route("/upload_data", methods=["POST"])
@@ -292,12 +292,13 @@ def create_analysis():
     # Gene Expression Data
     have_h5ad = request.form.get("have_h5ad") == "on"
     selected_h5ad_file = request.form.get("selected_h5ad_file")
-    raw_counts_file = request.form.get("raw_counts_file")
-    metadata_file = request.form.get("metadata_file")
+    gene_exp_file = request.form.get("gene_exp_file")
+    metadata_file = request.form.get("metadata_file", None)
+    species = request.form.get("species")
 
     # 2D Layout Data
     have_2d_layout = request.form.get("have_2d_layout") == "on"
-    layout_file = request.form.get("layout_file")
+    layout_file_2d = request.form.get("layout_file_2d")
 
     # UMAP Parameters (only relevant if not have_2d_layout)
     umap_parameters = None
@@ -346,29 +347,44 @@ def create_analysis():
         if not selected_h5ad_file:
             flash("Please select a .h5ad file.", "error")
             return redirect(url_for("main_routes.create_analysis_page"))
-    else:  # User does not have .h5ad, so raw_counts and metadata are required
-        if not raw_counts_file:
-            flash("Please select a raw counts file.", "error")
+    else:
+        if not gene_exp_file:
+            flash("Please select a gene expression file.", "error")
             return redirect(url_for("main_routes.create_analysis_page"))
-        # if not metadata_file:
-        #     flash("Please select a metadata file.", "error")
-        #     return redirect(url_for("main_routes.create_analysis_page"))
+
+    # Validate gene expression metadata file if provided
+    metadata_cols = []
+    if metadata_file and gene_exp_file:
+        all_users_data = get_all_users_data()
+        user_files = all_users_data.get(current_user.id, {}).get("files", [])
+
+        user_filenames = {f["filename"] for f in user_files}
+        if metadata_file not in user_filenames:
+            flash("Metadata file not found in your files.", "error")
+            return redirect(url_for("main_routes.create_analysis_page"))
+        if gene_exp_file not in user_filenames:
+            flash("Gene expression file not found in your files.", "error")
+            return redirect(url_for("main_routes.create_analysis_page"))
+
+        # If both are tabular, check index match
+        if (metadata_file.endswith((".csv", ".tsv")) and
+            gene_exp_file.endswith((".csv", ".tsv"))):
+            gene_exp = pd.read_csv(get_file_path(gene_exp_file, current_user.id), index_col=0)
+            metadata = pd.read_csv(get_file_path(metadata_file, current_user.id), index_col=0)
+            if not gene_exp.index.equals(metadata.index):
+                flash(
+                    "Gene expression and metadata files do not match in cell indices.",
+                    "error",
+                )
+                return redirect(url_for("main_routes.create_analysis_page"))
+            metadata_cols = metadata.columns.tolist()  # Store metadata columns
 
     # 2D Layout File Validation
     if have_2d_layout:
-        if not layout_file:
+        if not layout_file_2d:
             flash("Please select a 2D layout file.", "error")
             return redirect(url_for("main_routes.create_analysis_page"))
-    # else: # User wants to generate UMAP
-    # Potentially add validation for UMAP parameters here if needed
-    # For example, ensuring pca_components >= 2, n_neighbors >= 1 etc.
-    # if umap_parameters:
-    #     if umap_parameters["pca_components"] < 2:
-    #         flash("Number of PCA components must be at least 2.", "error")
-    #         return redirect(url_for("main_routes.create_analysis_page"))
-    #     if umap_parameters["n_neighbors"] < 1:
-    #         flash("Number of UMAP neighbors must be at least 1.", "error")
-    #         return redirect(url_for("main_routes.create_analysis_page"))
+    # else: # User wants to generate UMAP, TODO: Validate UMAP parameters
 
     all_users_data = get_all_users_data()
     current_user_node = all_users_data.setdefault(
@@ -388,22 +404,24 @@ def create_analysis():
     new_analysis = {
         "id": analysis_id,
         "name": analysis_name,
-        "status": "Pending",
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "status": "In Progress",
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "results_path": analysis_data_path,
         "inputs": {
             "gene_expression": {
-                "source": "h5ad" if have_h5ad else "separate_files",
-                "h5ad_filename": selected_h5ad_file if have_h5ad else None,
-                "counts_filename": raw_counts_file if not have_h5ad else None,
-                "metadata_filename": metadata_file if not have_h5ad else None,
+                "source": "h5ad" if have_h5ad else "SEPARATE_FILES",
+                **({"species": species} if not have_h5ad else {}),
+                **({"h5ad_filename": get_file_path(selected_h5ad_file, current_user.id)} if have_h5ad and selected_h5ad_file else {}),
+                **({"gene_exp_filename": get_file_path(gene_exp_file, current_user.id)} if not have_h5ad and gene_exp_file else {}),
+                **({"metadata_filename": get_file_path(metadata_file, current_user.id)} if not have_h5ad and metadata_file else {}),
             },
             "layout": {
-                "source": "file" if have_2d_layout else "generate_umap",
-                "layout_filename": layout_file if have_2d_layout else None,
-                "umap_settings": umap_parameters if not have_2d_layout else None,
+                "source": "FILE" if have_2d_layout else "UMAP_GENERATED",
+                **({"layout_filename": get_file_path(layout_file_2d, current_user.id)} if have_2d_layout and layout_file_2d else {}),
+                **({"umap_settings": umap_parameters} if not have_2d_layout and umap_parameters else {}),
             },
         },
+        ** ({"metadata_cols": metadata_cols} if not have_h5ad and metadata_file else {}),
     }
 
     current_user_node["analyses"].append(new_analysis)
@@ -411,7 +429,6 @@ def create_analysis():
 
     # 1. Run UMAP Pipeline in the background to generate 2D layout
     if not have_2d_layout:
-        # Run UMAP in background
         run_in_background(
             run_umap_pipeline,
             current_user.id,
@@ -443,8 +460,6 @@ def view_analysis(analysis_id):
 
 def generate_scatter_plot_response(
     analysis_to_view,
-    file_getter_fn,
-    current_user_id,
     cluster_col,
     x_col,
     y_col,
@@ -452,20 +467,14 @@ def generate_scatter_plot_response(
     xaxis_title,
     yaxis_title,
 ):
-    if analysis_to_view.get("inputs", {}).get("layout", {}).get("source") == "file":
-        layout_file = (
-            analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filename")
-        )
-        layout_filepath = file_getter_fn(layout_file, current_user_id)
+    layout_filepath = analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filename", "")
 
-        if not os.path.exists(layout_filepath):
-            current_app.logger.error(
-                f"Layout file '{layout_file}' not found for analysis_id '{analysis_to_view['id']}'."
-            )
-            flash("Layout file not found in user files.", "error")
-            return redirect(url_for("main_routes.index"))
-    else:
-        layout_filepath = analysis_to_view.get("umap_csv")
+    if not os.path.exists(layout_filepath):
+        current_app.logger.error(
+            f"Layout file '{layout_filepath}' not found for analysis_id '{analysis_to_view['id']}'."
+        )
+        flash("Layout file not found. Delete this analysis and create new analysis", "error")
+        return redirect(url_for("main_routes.index"))
 
     # Read the UMAP/PCA coordinates file
     try:
@@ -475,11 +484,11 @@ def generate_scatter_plot_response(
         if not required_columns.issubset(plot_df.columns):
             missing_cols = required_columns - set(plot_df.columns)
             error_msg = (
-                f"UMAP/PCA file missing required columns: {', '.join(missing_cols)}."
+                f"Layout file missing required columns: {', '.join(missing_cols)}."
             )
             current_app.logger.error(f"{error_msg} File: {layout_filepath}")
             flash(error_msg, "error")
-            return jsonify({"error": error_msg}), 400  # Bad Request
+            return jsonify({"error": error_msg}), 400
 
         traces = []
         for cluster_label, group_df in plot_df.groupby(cluster_col):
@@ -491,8 +500,6 @@ def generate_scatter_plot_response(
                     "mode": "markers",
                     "type": "scattergl",
                     "name": str(cluster_label),
-                    "size": 4,
-                    "opacity": 0.5,
                 }
             )
 
@@ -513,6 +520,7 @@ def generate_scatter_plot_response(
     except pd.errors.EmptyDataError:
         current_app.logger.error(f"UMAP/PCA file is empty: {layout_filepath}")
         return jsonify({"error": "UMAP/PCA coordinates file is empty."}), 500
+
     except pd.errors.ParserError as e:
         current_app.logger.error(
             f"Error parsing UMAP/PCA file: {layout_filepath}. Details: {e}"
@@ -523,12 +531,14 @@ def generate_scatter_plot_response(
             ),
             500,
         )
+
     except KeyError as e:
         current_app.logger.error(
             f"Missing expected column in UMAP/PCA file: {e}. File: {layout_filepath}",
             exc_info=True,
         )
         return jsonify({"error": f"Data processing error: Missing column {e}."}), 500
+
     except Exception as e:
         current_app.logger.error(
             f"Unexpected error processing UMAP/PCA file for analysis_id '{analysis_to_view['id']}': {e}",
@@ -538,6 +548,7 @@ def generate_scatter_plot_response(
             jsonify(
                 {
                     "error": "An unexpected error occurred while generating the UMAP/PCA plot."
+
                 }
             ),
             500,
@@ -564,8 +575,6 @@ def get_umap_plot(analysis_id):
 
     return generate_scatter_plot_response(
         analysis_to_view,
-        get_file_path,
-        current_user.id,
         CLUSTER_COL,
         UMAP1_COL,
         UMAP2_COL,
@@ -595,8 +604,6 @@ def get_pca_plot(analysis_id):
 
     return generate_scatter_plot_response(
         analysis_to_view,
-        get_file_path,
-        current_user.id,
         CLUSTER_COL,
         PCA1_COL,
         PCA2_COL,
@@ -622,7 +629,8 @@ def get_layout_and_metadata_dfs(analysis, user_id):
         )
         metadata_df = pd.read_csv(get_file_path(metadata_file, user_id), index_col=0)
     else:
-        layout_filepath = analysis.get("umap_csv")
+        # layout_filepath = analysis.get("umap_csv")
+        layout_filepath = analysis.get("inputs", {}).get("layout", {}).get("layout_filename")
         plot_df = pd.read_csv(layout_filepath, index_col=0)
         h5ad_file = (
             analysis.get("inputs", {}).get("gene_expression", {}).get("h5ad_filename")
@@ -644,13 +652,14 @@ def get_layout_and_bh_reject_df(analysis, user_id):
         layout_filepath = get_file_path(layout_file, user_id)
         plot_df = pd.read_csv(layout_filepath, index_col=0)
     else:
-        layout_filepath = analysis.get("umap_csv")
+        # layout_filepath = analysis.get("umap_csv")
+        layout_filepath = analysis.get("inputs", {}).get("layout", {}).get("layout_filename")
         plot_df = pd.read_csv(layout_filepath, index_col=0)
     return plot_df, bh_reject
 
 
 def generate_colored_traces(
-    analysis, plot_df, plot_type="umap_plot", cluster_col="Cluster", tf_activity=None
+   plot_df, plot_type="umap_plot", cluster_col="Cluster", tf_activity=None
 ):
     if plot_type.lower() == "umap_plot":
         x_col, y_col = UMAP1_COL, UMAP2_COL
@@ -686,8 +695,6 @@ def generate_colored_traces(
                     "type": "scattergl",
                     "name": cluster,
                     "marker": {
-                        "size": 4,
-                        "opacity": 0.5,
                         "color": unique_clusters[cluster],
                     },
                 }
@@ -702,8 +709,6 @@ def generate_colored_traces(
                     "mode": "markers",
                     "type": "scattergl",
                     "name": cluster,
-                    "size": 4,
-                    "opacity": 0.5,
                 }
             )
     return traces, title, x_col, y_col
@@ -778,7 +783,7 @@ def get_metadata_color_by(analysis_id):
 
         # Choose columns based on plot_type
         traces, title, x_col, y_col = generate_colored_traces(
-            analysis=analysis, plot_df=plot_df, plot_type=plot_type
+            plot_df=plot_df, plot_type=plot_type
         )
         layout = {
             "title": title,
@@ -865,7 +870,6 @@ def get_tf_color_by(analysis_id):
             bh_reject[tf_activity].astype(object), left_index=True, right_index=True
         )
         traces, title, x_col, y_col = generate_colored_traces(
-            analysis=analysis,
             plot_df=plot_df,
             plot_type=plot_type,
             tf_activity=tf_activity,

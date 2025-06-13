@@ -35,8 +35,6 @@ def update_analysis_status(
     bh_reject_path=None,
     error=None,
 ):
-    if metadata_cols is None:
-        metadata_cols = []
     current_app.logger.info(
         f"[UTILS] Updating analysis status: user_id={user_id}, analysis_id={analysis_id}, status={status}, umap_csv_path={umap_csv_path}, metadata_cols={metadata_cols}, error={error}"
     )
@@ -46,7 +44,7 @@ def update_analysis_status(
     for analysis in user_node.get("analyses", []):
         if analysis["id"] == analysis_id:
             analysis["status"] = status
-            analysis["metadata_cols"] = metadata_cols
+            analysis["metadata_cols"] = metadata_cols if metadata_cols else []
             if tfs:
                 analysis["tfs"] = tfs
             if pvalues_path:
@@ -54,7 +52,8 @@ def update_analysis_status(
             if bh_reject_path:
                 analysis["bh_reject_path"] = bh_reject_path
             if umap_csv_path:
-                analysis["umap_csv"] = umap_csv_path
+                layout = analysis.get("inputs").get("layout")
+                layout["layout_filename"] = umap_csv_path
             if error:
                 analysis["error"] = error
             found = True

@@ -4,8 +4,6 @@ import pandas as pd
 import scanpy as sc
 from flask import current_app
 
-from app import get_file_path
-
 
 def run_umap_pipeline(
     user_id, analysis_id, analysis_data, update_status_fn, run_analysis_fn
@@ -19,37 +17,24 @@ def run_umap_pipeline(
         gene_expr = analysis_data["inputs"]["gene_expression"]
         metadata_cols = []
         if gene_expr["source"] == "h5ad":
-            current_app.logger.info(
-                f"[UMAP] Loading .h5ad file: {get_file_path(gene_expr['h5ad_filename'], user_id)}"
-            )
-            adata = sc.read_h5ad(get_file_path(gene_expr["h5ad_filename"], user_id))
+            current_app.logger.info(f"[UMAP] Loading .h5ad file: {gene_expr['h5ad_filename']}")
+            adata = sc.read_h5ad(gene_expr["h5ad_filename"])
             # Save metadata obs_keys in analysis
-            metadata_cols = adata.obs_keys()
-            current_app.logger.info(
-                f"[UMAP] Metadata columns found in .h5ad file: {metadata_cols}"
-            )
+            metadata_cols = adata.obs_keys()[1:] if adata.obs_keys() else []
+            current_app.logger.info(f"[UMAP] Metadata columns found in .h5ad file: {metadata_cols}")
 
         else:
-            current_app.logger.info(
-                f"[UMAP] Loading counts file: {get_file_path(gene_expr['counts_filename'], user_id)}"
-            )
-            counts = pd.read_csv(
-                get_file_path(gene_expr["counts_filename"], user_id), index_col=0
-            )
-            if gene_expr["metadata_filename"]:
-                current_app.logger.info(
-                    f"[UMAP] Loading metadata file: {get_file_path(gene_expr['metadata_filename'], user_id)}"
-                )
-                meta = pd.read_csv(
-                    get_file_path(gene_expr["metadata_filename"], user_id), index_col=0
-                )
-                adata = sc.AnnData(counts, obs=meta)
-                metadata_cols = adata.obs_keys()
+            current_app.logger.info(f"[UMAP] Loading gene_exp file: {gene_expr['gene_exp_filename']}")
+            gene_exp = pd.read_csv(gene_expr['gene_exp_filename'], index_col=0)
+
+            if gene_expr.get("metadata_filename", None) is None:
+                current_app.logger.info(f"[UMAP] Loading metadata file: {gene_expr['metadata_filename']}")
+                meta_data = pd.read_csv(gene_expr["metadata_filename"], index_col=0)
+                adata = sc.AnnData(gene_exp, obs=meta_data)
+                metadata_cols = meta_data.columns.tolist()
             else:
-                current_app.logger.info(
-                    "[UMAP] No metadata file provided, creating AnnData with counts only."
-                )
-                adata = sc.AnnData(counts)
+                current_app.logger.info("[UMAP] No metadata file provided, creating AnnData with gene_exp only.")
+                adata = sc.AnnData(gene_exp)
 
         # 2. Run pipeline (use parameters from analysis_data["inputs"]["layout"]["umap_settings"])
         params = analysis_data["inputs"]["layout"]["umap_settings"] or {}
@@ -61,11 +46,21 @@ def run_umap_pipeline(
             )
             sc.pp.filter_cells(adata, min_genes=params.get("filter_cells_value", 500))
 
+        # Check if adata is empty after filtering cells
+        if adata.n_obs == 0:
+            update_status_fn(user_id, analysis_id, "No cells left after filtering.",)
+            raise ValueError("No cells left after filtering. Please check your filter settings.")
+
         if params.get("filter_genes"):
             current_app.logger.info(
                 f"[UMAP] Filtering genes with min_cells={params.get('filter_genes_value', 100)}"
             )
             sc.pp.filter_genes(adata, min_cells=params.get("filter_genes_value", 100))
+
+        # Check if adata is empty after filtering genes
+        if adata.n_vars == 0:
+            update_status_fn(user_id, analysis_id, "No genes left after filtering.",)
+            raise ValueError("No genes left after filtering. Please check your filter settings.")
 
         if params.get("qc_filter"):
             current_app.logger.info(
@@ -125,12 +120,8 @@ def run_umap_pipeline(
         umap_df.to_csv(umap_csv_path)
 
         # 4. Update status to Completed
-        current_app.logger.info(
-            f"[UMAP] UMAP pipeline completed successfully for analysis '{analysis_id}'."
-        )
-        update_status_fn(
-            user_id, analysis_id, "Completed", umap_csv_path, metadata_cols
-        )
+        current_app.logger.info(f"[UMAP] UMAP pipeline completed successfully for analysis '{analysis_id}'.")
+        update_status_fn(user_id, analysis_id, "Completed", umap_csv_path, metadata_cols)
 
         # 5. Run analysis function
         current_app.logger.info(f"[UMAP] Running analysis function for analysis '{analysis_id}'.")
@@ -139,7 +130,7 @@ def run_umap_pipeline(
             user_id=user_id,
             analysis_id=analysis_id,
             analysis_data=analysis_data,
-            adata=adata,  # adata is already filtered
+            adata=adata,
             update_analysis_status_fn=update_status_fn,
         )
 
