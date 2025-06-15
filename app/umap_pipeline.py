@@ -17,19 +17,19 @@ def run_umap_pipeline(
         gene_expr = analysis_data["inputs"]["gene_expression"]
         metadata_cols = []
         if gene_expr["source"] == "h5ad":
-            current_app.logger.info(f"[UMAP] Loading .h5ad file: {gene_expr['h5ad_filename']}")
-            adata = sc.read_h5ad(gene_expr["h5ad_filename"])
+            current_app.logger.info(f"[UMAP] Loading .h5ad file: {gene_expr['h5ad_filepath']}")
+            adata = sc.read_h5ad(gene_expr["h5ad_filepath"])
             # Save metadata obs_keys in analysis
             metadata_cols = adata.obs_keys()[1:] if adata.obs_keys() else []
             current_app.logger.info(f"[UMAP] Metadata columns found in .h5ad file: {metadata_cols}")
 
         else:
-            current_app.logger.info(f"[UMAP] Loading gene_exp file: {gene_expr['gene_exp_filename']}")
-            gene_exp = pd.read_csv(gene_expr['gene_exp_filename'], index_col=0)
+            current_app.logger.info(f"[UMAP] Loading gene_exp file: {gene_expr['gene_exp_filepath']}")
+            gene_exp = pd.read_csv(gene_expr['gene_exp_filepath'], index_col=0)
 
-            if gene_expr.get("metadata_filename", None) is None:
-                current_app.logger.info(f"[UMAP] Loading metadata file: {gene_expr['metadata_filename']}")
-                meta_data = pd.read_csv(gene_expr["metadata_filename"], index_col=0)
+            if gene_expr.get("metadata_filepath", None) is None:
+                current_app.logger.info(f"[UMAP] Loading metadata file: {gene_expr['metadata_filepath']}")
+                meta_data = pd.read_csv(gene_expr["metadata_filepath"], index_col=0)
                 adata = sc.AnnData(gene_exp, obs=meta_data)
                 metadata_cols = meta_data.columns.tolist()
             else:
@@ -121,7 +121,7 @@ def run_umap_pipeline(
 
         # 4. Update status to Completed
         current_app.logger.info(f"[UMAP] UMAP pipeline completed successfully for analysis '{analysis_id}'.")
-        update_status_fn(user_id, analysis_id, "Completed", umap_csv_path, metadata_cols)
+        update_status_fn(user_id=user_id, analysis_id=analysis_id, status="Completed", umap_csv_path=umap_csv_path, metadata_cols=metadata_cols)
 
         # 5. Run analysis function
         current_app.logger.info(f"[UMAP] Running analysis function for analysis '{analysis_id}'.")

@@ -33,6 +33,7 @@ def update_analysis_status(
     tfs=None,
     pvalues_path=None,
     bh_reject_path=None,
+    z_scores_path=None,
     error=None,
 ):
     current_app.logger.info(
@@ -43,17 +44,21 @@ def update_analysis_status(
     found = False
     for analysis in user_node.get("analyses", []):
         if analysis["id"] == analysis_id:
-            analysis["status"] = status
-            analysis["metadata_cols"] = metadata_cols if metadata_cols else []
+            if status:
+                analysis["status"] = status
+            if metadata_cols:
+                analysis["metadata_cols"] = metadata_cols
             if tfs:
                 analysis["tfs"] = tfs
             if pvalues_path:
                 analysis["pvalues_path"] = pvalues_path
             if bh_reject_path:
                 analysis["bh_reject_path"] = bh_reject_path
+            if z_scores_path:
+                analysis["z_scores_path"] = z_scores_path
             if umap_csv_path:
                 layout = analysis.get("inputs").get("layout")
-                layout["layout_filename"] = umap_csv_path
+                layout["layout_filepath"] = umap_csv_path
             if error:
                 analysis["error"] = error
             found = True
@@ -67,3 +72,8 @@ def update_analysis_status(
         current_app.logger.warning(
             f"[UTILS] Analysis with id={analysis_id} not found for user_id={user_id}. No update performed."
         )
+
+def infer_delimiter(filepath):
+    with open(filepath, 'r') as f:
+        first_line = f.readline()
+        return '\t' if '\t' in first_line else ','

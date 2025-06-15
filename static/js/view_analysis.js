@@ -11,8 +11,10 @@ const metadataColSelectionDiv = document.getElementById("metadata-column-selecti
 const metadataColNameSelect = document.getElementById("metadata-column-name");
 const tfSelectionDiv = document.getElementById("tf-selection-div");
 const tfManualEntryDiv = document.getElementById("tf-manual-entry-div");
+const geneEntryDiv = document.getElementById("gene-entry-div");
 const tfNameSelect = document.getElementById("tf-name-select");
 const tfManualEntryInput = document.getElementById("tf-manual-entry-input");
+const geneEntryInput = document.getElementById("gene-entry-input");
 const pointSizeSlider = document.getElementById("point-size");
 const pointSizeValue = document.getElementById("point-size-value");
 const opacitySlider = document.getElementById("opacity");
@@ -60,12 +62,23 @@ if (colorBySelect) {
 			tfSelectionDiv.classList.remove("hidden");
 			tfManualEntryDiv.classList.remove("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
-		} else if (this.value === "metadata_columns") {
+			geneEntryDiv.classList.add("hidden");
+		}
+		else if (this.value === "metadata_columns") {
 			tfSelectionDiv.classList.add("hidden");
 			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.remove("hidden");
+			geneEntryDiv.classList.add("hidden");
+		}
+		else if (this.value === "gene_expression") {
+			geneEntryDiv.classList.remove("hidden");
+			tfSelectionDiv.classList.add("hidden");
+			tfManualEntryDiv.classList.add("hidden");
+			metadataColSelectionDiv.classList.add("hidden");
 		}
 		else {
+			geneEntryDiv.classList.remove("hidden");
+			geneEntryDiv.classList.add("hidden");
 			tfSelectionDiv.classList.add("hidden");
 			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
@@ -174,6 +187,29 @@ tfManualEntryInput.addEventListener("keypress", function (event) {
 		}
 	}
 });
+
+geneEntryInput.addEventListener("keypress", function (event) {
+	if (event.key === "Enter") {
+		let gene_name = this.value.trim().toUpperCase();
+		if (gene_name) {
+			const apiUrl = `/analysis/gene-expression/${window.analysis.id}`;
+
+			getPlotData(
+				gene_name, apiUrl,
+				"POST",
+				{ selected_gene: gene_name, plot_type: plotTypeSelect.value }
+			).then(() => {
+				console.log("Gene expression plot loaded successfully.");
+			})
+				.catch((err) => {
+					console.error("Failed to load plot:", err);
+					alert("Failed to load plot. Please try again later.");
+				});
+		} else {
+			alert("Please enter a valid gene name.");
+		}
+	}
+})
 
 if (pointSizeSlider && pointSizeValue) {
 	pointSizeSlider.addEventListener("input", function (e) {

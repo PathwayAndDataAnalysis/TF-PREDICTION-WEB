@@ -90,7 +90,7 @@ block content %}
                                 <option value="select_cluster_type">---Select Cluster Type---</option>
                                 <option value="metadata_columns">Metadata Columns</option>
                                 <option value="tf_activity">TF Activity</option>
-                                <option value="gene_expression">Gene Expression Values</option>
+                                <option value="gene_expression">Gene Expression Level</option>
                             </select>
                         </div>
 
@@ -131,6 +131,17 @@ block content %}
                                 name="tf_manual_entry"
                                 class="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                                 placeholder="Enter TF Name"
+                            />
+                        </div>
+
+                        <div id="gene-entry-div" class="mb-4 hidden">
+                            <label for="gene-entry-input" class="block text-sm font-medium text-gray-700 mb-1">Enter Gene:</label>
+                            <input
+                                type="text"
+                                id="gene-entry-input"
+                                name="gene_entry"
+                                class="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                placeholder="Enter Gene Name"
                             />
                         </div>
                     </div>

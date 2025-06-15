@@ -17,6 +17,7 @@ from flask import (
     jsonify,
 )
 from flask_login import login_user, logout_user, login_required, current_user
+from scipy.sparse import issparse
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
@@ -30,7 +31,7 @@ from . import (
 )
 from .tf_analysis import run_tf_analysis
 from .umap_pipeline import run_umap_pipeline
-from .utils import run_in_background, update_analysis_status
+from .utils import run_in_background, update_analysis_status, infer_delimiter
 
 # Create Blueprints
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -411,13 +412,13 @@ def create_analysis():
             "gene_expression": {
                 "source": "h5ad" if have_h5ad else "SEPARATE_FILES",
                 **({"species": species} if not have_h5ad else {}),
-                **({"h5ad_filename": get_file_path(selected_h5ad_file, current_user.id)} if have_h5ad and selected_h5ad_file else {}),
-                **({"gene_exp_filename": get_file_path(gene_exp_file, current_user.id)} if not have_h5ad and gene_exp_file else {}),
-                **({"metadata_filename": get_file_path(metadata_file, current_user.id)} if not have_h5ad and metadata_file else {}),
+                **({"h5ad_filepath": get_file_path(selected_h5ad_file, current_user.id)} if have_h5ad and selected_h5ad_file else {}),
+                **({"gene_exp_filepath": get_file_path(gene_exp_file, current_user.id)} if not have_h5ad and gene_exp_file else {}),
+                **({"metadata_filepath": get_file_path(metadata_file, current_user.id)} if not have_h5ad and metadata_file else {}),
             },
             "layout": {
                 "source": "FILE" if have_2d_layout else "UMAP_GENERATED",
-                **({"layout_filename": get_file_path(layout_file_2d, current_user.id)} if have_2d_layout and layout_file_2d else {}),
+                **({"layout_filepath": get_file_path(layout_file_2d, current_user.id)} if have_2d_layout and layout_file_2d else {}),
                 **({"umap_settings": umap_parameters} if not have_2d_layout and umap_parameters else {}),
             },
         },
@@ -467,7 +468,7 @@ def generate_scatter_plot_response(
     xaxis_title,
     yaxis_title,
 ):
-    layout_filepath = analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filename", "")
+    layout_filepath = analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filepath", "")
 
     if not os.path.exists(layout_filepath):
         current_app.logger.error(
@@ -478,7 +479,8 @@ def generate_scatter_plot_response(
 
     # Read the UMAP/PCA coordinates file
     try:
-        plot_df = pd.read_csv(layout_filepath, index_col=0)
+        sep = infer_delimiter(layout_filepath)
+        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
         required_columns = {cluster_col, x_col, y_col}
 
         if not required_columns.issubset(plot_df.columns):
@@ -618,22 +620,23 @@ def get_layout_and_metadata_dfs(analysis, user_id):
     layout_source = analysis.get("inputs", {}).get("layout", {}).get("source")
     if layout_source == "file":
         layout_file = (
-            analysis.get("inputs", {}).get("layout", {}).get("layout_filename")
+            analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
         )
         layout_filepath = get_file_path(layout_file, user_id)
-        plot_df = pd.read_csv(layout_filepath, index_col=0)
+        sep = infer_delimiter(layout_filepath)
+        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
         metadata_file = (
             analysis.get("inputs", {})
             .get("gene_expression", {})
-            .get("metadata_filename")
+            .get("metadata_filepath")
         )
         metadata_df = pd.read_csv(get_file_path(metadata_file, user_id), index_col=0)
     else:
-        # layout_filepath = analysis.get("umap_csv")
-        layout_filepath = analysis.get("inputs", {}).get("layout", {}).get("layout_filename")
-        plot_df = pd.read_csv(layout_filepath, index_col=0)
+        layout_filepath = analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
+        sep = infer_delimiter(layout_filepath)
+        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
         h5ad_file = (
-            analysis.get("inputs", {}).get("gene_expression", {}).get("h5ad_filename")
+            analysis.get("inputs", {}).get("gene_expression", {}).get("h5ad_filepath")
         )
         adata = sc.read_h5ad(get_file_path(h5ad_file, user_id))
         metadata_df = pd.DataFrame(adata.obs)
@@ -644,18 +647,70 @@ def get_layout_and_bh_reject_df(analysis, user_id):
     """Return plot_df and tfs_df for the given analysis."""
     layout_source = analysis.get("inputs", {}).get("layout", {}).get("source")
     bh_reject_file = analysis.get("bh_reject_path", "")
-    bh_reject = pd.read_csv(bh_reject_file, sep="\t", index_col=0, low_memory=False)
+    bh_reject = pd.read_csv(bh_reject_file, index_col=0, low_memory=False)
     if layout_source == "file":
-        layout_file = (
-            analysis.get("inputs", {}).get("layout", {}).get("layout_filename")
+        layout_filepath = (
+            analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
         )
-        layout_filepath = get_file_path(layout_file, user_id)
-        plot_df = pd.read_csv(layout_filepath, index_col=0)
+        sep = infer_delimiter(layout_filepath)
+        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
     else:
-        # layout_filepath = analysis.get("umap_csv")
-        layout_filepath = analysis.get("inputs", {}).get("layout", {}).get("layout_filename")
-        plot_df = pd.read_csv(layout_filepath, index_col=0)
+        layout_filepath = analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
+        sep = infer_delimiter(layout_filepath)
+        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
     return plot_df, bh_reject
+
+
+def get_layout_and_gene_exp_levels_df(analysis, gene_name):
+    """Return plot_df and gene_exp_levels_df for the given analysis."""
+    layout_filepath = analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
+    z_score_filepath = analysis.get("z_scores_path", "")
+
+    if not os.path.exists(layout_filepath):
+        current_app.logger.error(
+            f"Layout file '{layout_filepath}' not found for analysis_id '{analysis['id']}'."
+        )
+        return (
+            jsonify({"error": "Layout file not found. Delete this analysis and create new analysis"}),
+            404,
+        )
+    if not os.path.exists(z_score_filepath):
+        current_app.logger.error(
+            f"Z-scores file '{z_score_filepath}' not found for analysis_id '{analysis['id']}'."
+        )
+        return (
+            jsonify({"error": "Z-scores file not found. Delete this analysis and create new analysis"}),
+            404,
+        )
+    try:
+        sep = infer_delimiter(layout_filepath)
+        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
+        z_scores_df = pd.read_csv(z_score_filepath, index_col=0)
+
+        if gene_name not in z_scores_df.columns:
+            current_app.logger.error(
+                f"Gene '{gene_name}' not found in z-score data for analysis_id '{analysis['id']}'."
+            )
+            return (
+                jsonify({"error": f"Gene '{gene_name}' not found in z-score data."}),
+                400,
+            )
+        # Filter for the specific gene
+        gene_exp_levels_df = z_scores_df[[gene_name]].copy()
+        plot_df = plot_df.merge(gene_exp_levels_df, left_index=True, right_index=True)
+        # Replace NaN values with 0 for plotting of gene_name column
+        plot_df[gene_name] = plot_df[gene_name].fillna(0)
+
+        return plot_df
+
+    except Exception as e:
+        current_app.logger.error(
+            f"Error reading layout/z-score file for analysis_id '{analysis['id']}': {e}"
+        )
+        return (
+            jsonify({"error": "Failed to read layout/z-score file. Invalid format."}),
+            500,
+        )
 
 
 def generate_colored_traces(
@@ -893,6 +948,86 @@ def get_tf_color_by(analysis_id):
     except Exception as e:
         current_app.logger.error(
             f"Error in get_tf_color_by for analysis_id={analysis_id}, tf_activity='{tf_activity}', plot_type='{plot_type}': {e}",
+            exc_info=True,
+        )
+        return jsonify({"error": "Internal server error."}), 500
+
+
+@main_bp.route("/analysis/gene-expression/<analysis_id>", methods=["POST"])
+@login_required
+def get_gene_expression_color_by(analysis_id):
+    current_app.logger.info(
+        f"Request to color by gene expression for analysis_id={analysis_id} by user={current_user.id}"
+    )
+    all_users_data = get_all_users_data()
+    user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
+    analysis = find_analysis_by_id(user_analyses, analysis_id)
+
+    if not analysis:
+        current_app.logger.warning(
+            f"Analysis not found: analysis_id={analysis_id} for user={current_user.id}"
+        )
+        return jsonify({"error": "Analysis not found."}), 404
+    if analysis.get("status") != "Completed":
+        current_app.logger.info(
+            f"Analysis not completed yet: analysis_id={analysis_id} for user={current_user.id}"
+        )
+        return jsonify({"error": "Analysis is not completed yet."}), 400
+
+    gene_name = request.json.get("selected_gene", "").strip()
+    plot_type = request.json.get("plot_type", "").strip()
+    current_app.logger.debug(
+        f"Received gene_name='{gene_name}', plot_type='{plot_type}' for analysis_id={analysis_id}"
+    )
+    if not gene_name:
+        current_app.logger.warning(
+            f"No gene expression provided in request for analysis_id={analysis_id}"
+        )
+        return jsonify({"error": "Gene expression is required."}), 400
+
+    try:
+        plot_df = get_layout_and_gene_exp_levels_df(analysis, gene_name)
+
+        title = ""
+        x_col = ""
+        y_col = ""
+        if plot_type.lower() == "umap_plot":
+            x_col, y_col = UMAP1_COL, UMAP2_COL
+            title = (f"UMAP Plot Colored by {gene_name}")
+        elif plot_type.lower() == "pca_plot":
+            x_col, y_col = PCA1_COL, PCA2_COL
+            title = f"PCA Plot Colored by {gene_name}"
+
+        traces = {
+            "x": plot_df[x_col].tolist(),
+            "y": plot_df[y_col].tolist(),
+            "mode": "markers",
+            "type": "scattergl",
+            "marker": {
+                "color": plot_df[gene_name].tolist(),
+                "colorscale": "Viridis",
+            }
+        }
+
+        layout = {
+            "title": title,
+            "xaxis": {"title": x_col},
+            "yaxis": {"title": y_col},
+        }
+        graph_data = {
+            "data": traces,
+            "layout": layout,
+            "metadata_cols": analysis.get("metadata_cols", []),
+            "tfs": analysis.get("tfs", []),
+        }
+        current_app.logger.info(
+            f"Successfully generated colored plot for analysis_id={analysis_id}, gene_name='{gene_name}', plot_type='{plot_type}'"
+        )
+        return jsonify(graph_data), 200
+
+    except Exception as e:
+        current_app.logger.error(
+            f"Error in get_gene_expression_color_by for analysis_id={analysis_id}, gene_name='{gene_name}', plot_type='{plot_type}': {e}",
             exc_info=True,
         )
         return jsonify({"error": "Internal server error."}), 500

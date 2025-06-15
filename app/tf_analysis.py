@@ -192,17 +192,16 @@ def run_tf_analysis(
         z_df = pd.DataFrame(z_mat, index=adata.obs_names, columns=adata.var_names)
 
         z_scores_path = os.path.join(
-            analysis_data.get("results_path", ""), "z_scores.tsv"
+            analysis_data.get("results_path", ""), "z_scores.csv"
         )
         print(f"Saving Z-scores to {z_scores_path}...")
-        z_df.to_csv(z_scores_path, sep="\t", index=True)
+        z_df.to_csv(z_scores_path, index=True)
 
         # ───── Load TF‑target priors ──────────────────────────────────────────────
         print("Loading TF-target priors...")
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        priors = pd.read_csv(
-            os.path.join(script_dir, "..", "prior_data", "causal_priors.tsv"), sep="\t"
-        )
+        priors = pd.read_csv(os.path.join(script_dir, "..", "prior_data", "causal_priors.tsv"), sep="\t")
+        priors = priors[priors["TargetGene"].notna()]
         expected_cols = {"Regulator", "TargetGene", "RegulatoryEffect"}
         if not expected_cols.issubset(priors.columns):
             raise ValueError(f"Prior file must contain columns {expected_cols}")
@@ -263,9 +262,9 @@ def run_tf_analysis(
         # ───── Save results ───────────────────────────────────────────────────────
         result_path = analysis_data.get("results_path", None)
 
-        p_values_path = os.path.join(result_path, "p_values.tsv")
+        p_values_path = os.path.join(result_path, "p_values.csv")
         print(f"Saving p-values to {p_values_path}...")
-        p_values_df.to_csv(p_values_path, sep="\t", index=True)
+        p_values_df.to_csv(p_values_path, index=True)
 
         # ───── Run Benjamini Hotchberg FDR Correction ────────────────────────────────
         update_analysis_status_fn(
@@ -286,9 +285,9 @@ def run_tf_analysis(
         final_output[p_values_df.isna()] = np.nan
         final_output = final_output.astype("Int64")  # Use nullable integer type
 
-        bh_reject_path = os.path.join(result_path, "bh_reject.tsv")
+        bh_reject_path = os.path.join(result_path, "bh_reject.csv")
         print(f"Saving FDR results to {bh_reject_path}...")
-        final_output.to_csv(bh_reject_path, sep="\t", index=True)
+        final_output.to_csv(bh_reject_path, index=True)
 
         update_analysis_status_fn(
             user_id=user_id,
@@ -296,6 +295,7 @@ def run_tf_analysis(
             status="Completed",
             tfs=tf_counts.index.tolist(),
             bh_reject_path=bh_reject_path,
+            z_scores_path=z_scores_path
         )
         current_app.logger.info(
             f"[TF_ANALYSIS] TF analysis completed for user '{user_id}', analysis '{analysis_id}'."
