@@ -17,11 +17,9 @@ from flask import (
     jsonify,
 )
 from flask_login import login_user, logout_user, login_required, current_user
-from scipy.sparse import issparse
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
-# Import User model and data helpers from app.__init__
 from . import (
     User,
     get_all_users_data,
@@ -368,10 +366,15 @@ def create_analysis():
             return redirect(url_for("main_routes.create_analysis_page"))
 
         # If both are tabular, check index match
-        if (metadata_file.endswith((".csv", ".tsv")) and
-            gene_exp_file.endswith((".csv", ".tsv"))):
-            gene_exp = pd.read_csv(get_file_path(gene_exp_file, current_user.id), index_col=0)
-            metadata = pd.read_csv(get_file_path(metadata_file, current_user.id), index_col=0)
+        if metadata_file.endswith((".csv", ".tsv")) and gene_exp_file.endswith(
+            (".csv", ".tsv")
+        ):
+            gene_exp = pd.read_csv(
+                get_file_path(gene_exp_file, current_user.id), index_col=0
+            )
+            metadata = pd.read_csv(
+                get_file_path(metadata_file, current_user.id), index_col=0
+            )
             if not gene_exp.index.equals(metadata.index):
                 flash(
                     "Gene expression and metadata files do not match in cell indices.",
@@ -412,17 +415,41 @@ def create_analysis():
             "gene_expression": {
                 "source": "h5ad" if have_h5ad else "SEPARATE_FILES",
                 **({"species": species} if not have_h5ad else {}),
-                **({"h5ad_filepath": get_file_path(selected_h5ad_file, current_user.id)} if have_h5ad and selected_h5ad_file else {}),
-                **({"gene_exp_filepath": get_file_path(gene_exp_file, current_user.id)} if not have_h5ad and gene_exp_file else {}),
-                **({"metadata_filepath": get_file_path(metadata_file, current_user.id)} if not have_h5ad and metadata_file else {}),
+                **(
+                    {
+                        "h5ad_filepath": get_file_path(
+                            selected_h5ad_file, current_user.id
+                        )
+                    }
+                    if have_h5ad and selected_h5ad_file
+                    else {}
+                ),
+                **(
+                    {"gene_exp_filepath": get_file_path(gene_exp_file, current_user.id)}
+                    if not have_h5ad and gene_exp_file
+                    else {}
+                ),
+                **(
+                    {"metadata_filepath": get_file_path(metadata_file, current_user.id)}
+                    if not have_h5ad and metadata_file
+                    else {}
+                ),
             },
             "layout": {
                 "source": "FILE" if have_2d_layout else "UMAP_GENERATED",
-                **({"layout_filepath": get_file_path(layout_file_2d, current_user.id)} if have_2d_layout and layout_file_2d else {}),
-                **({"umap_settings": umap_parameters} if not have_2d_layout and umap_parameters else {}),
+                **(
+                    {"layout_filepath": get_file_path(layout_file_2d, current_user.id)}
+                    if have_2d_layout and layout_file_2d
+                    else {}
+                ),
+                **(
+                    {"umap_settings": umap_parameters}
+                    if not have_2d_layout and umap_parameters
+                    else {}
+                ),
             },
         },
-        ** ({"metadata_cols": metadata_cols} if not have_h5ad and metadata_file else {}),
+        **({"metadata_cols": metadata_cols} if not have_h5ad and metadata_file else {}),
     }
 
     current_user_node["analyses"].append(new_analysis)
@@ -468,13 +495,18 @@ def generate_scatter_plot_response(
     xaxis_title,
     yaxis_title,
 ):
-    layout_filepath = analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filepath", "")
+    layout_filepath = (
+        analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filepath", "")
+    )
 
     if not os.path.exists(layout_filepath):
         current_app.logger.error(
             f"Layout file '{layout_filepath}' not found for analysis_id '{analysis_to_view['id']}'."
         )
-        flash("Layout file not found. Delete this analysis and create new analysis", "error")
+        flash(
+            "Layout file not found. Delete this analysis and create new analysis",
+            "error",
+        )
         return redirect(url_for("main_routes.index"))
 
     # Read the UMAP/PCA coordinates file
@@ -550,7 +582,6 @@ def generate_scatter_plot_response(
             jsonify(
                 {
                     "error": "An unexpected error occurred while generating the UMAP/PCA plot."
-
                 }
             ),
             500,
@@ -632,7 +663,9 @@ def get_layout_and_metadata_dfs(analysis, user_id):
         )
         metadata_df = pd.read_csv(get_file_path(metadata_file, user_id), index_col=0)
     else:
-        layout_filepath = analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
+        layout_filepath = (
+            analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
+        )
         sep = infer_delimiter(layout_filepath)
         plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
         h5ad_file = (
@@ -655,7 +688,9 @@ def get_layout_and_bh_reject_df(analysis, user_id):
         sep = infer_delimiter(layout_filepath)
         plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
     else:
-        layout_filepath = analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
+        layout_filepath = (
+            analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
+        )
         sep = infer_delimiter(layout_filepath)
         plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
     return plot_df, bh_reject
@@ -663,7 +698,9 @@ def get_layout_and_bh_reject_df(analysis, user_id):
 
 def get_layout_and_gene_exp_levels_df(analysis, gene_name):
     """Return plot_df and gene_exp_levels_df for the given analysis."""
-    layout_filepath = analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
+    layout_filepath = (
+        analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
+    )
     z_score_filepath = analysis.get("z_scores_path", "")
 
     if not os.path.exists(layout_filepath):
@@ -671,7 +708,11 @@ def get_layout_and_gene_exp_levels_df(analysis, gene_name):
             f"Layout file '{layout_filepath}' not found for analysis_id '{analysis['id']}'."
         )
         return (
-            jsonify({"error": "Layout file not found. Delete this analysis and create new analysis"}),
+            jsonify(
+                {
+                    "error": "Layout file not found. Delete this analysis and create new analysis"
+                }
+            ),
             404,
         )
     if not os.path.exists(z_score_filepath):
@@ -679,7 +720,11 @@ def get_layout_and_gene_exp_levels_df(analysis, gene_name):
             f"Z-scores file '{z_score_filepath}' not found for analysis_id '{analysis['id']}'."
         )
         return (
-            jsonify({"error": "Z-scores file not found. Delete this analysis and create new analysis"}),
+            jsonify(
+                {
+                    "error": "Z-scores file not found. Delete this analysis and create new analysis"
+                }
+            ),
             404,
         )
     try:
@@ -714,7 +759,7 @@ def get_layout_and_gene_exp_levels_df(analysis, gene_name):
 
 
 def generate_colored_traces(
-   plot_df, plot_type="umap_plot", cluster_col="Cluster", tf_activity=None
+    plot_df, plot_type="umap_plot", cluster_col="Cluster", tf_activity=None
 ):
     if plot_type.lower() == "umap_plot":
         x_col, y_col = UMAP1_COL, UMAP2_COL
@@ -993,7 +1038,7 @@ def get_gene_expression_color_by(analysis_id):
         y_col = ""
         if plot_type.lower() == "umap_plot":
             x_col, y_col = UMAP1_COL, UMAP2_COL
-            title = (f"UMAP Plot Colored by {gene_name}")
+            title = f"UMAP Plot Colored by {gene_name}"
         elif plot_type.lower() == "pca_plot":
             x_col, y_col = PCA1_COL, PCA2_COL
             title = f"PCA Plot Colored by {gene_name}"
@@ -1006,7 +1051,9 @@ def get_gene_expression_color_by(analysis_id):
             "marker": {
                 "color": plot_df[gene_name].tolist(),
                 "colorscale": "Viridis",
-            }
+                "showscale": True,
+                "colorbar": {"title": gene_name},
+            },
         }
 
         layout = {
@@ -1015,7 +1062,7 @@ def get_gene_expression_color_by(analysis_id):
             "yaxis": {"title": y_col},
         }
         graph_data = {
-            "data": traces,
+            "data": [traces],
             "layout": layout,
             "metadata_cols": analysis.get("metadata_cols", []),
             "tfs": analysis.get("tfs", []),

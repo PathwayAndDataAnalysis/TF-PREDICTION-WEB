@@ -5,6 +5,7 @@ const defaultPointSize = 4;
 const defaultOpacity = 0.5;
 
 // Plot configuration panel logic
+const plotTitle = document.getElementById("plot-title");
 const plotTypeSelect = document.getElementById("plot-type");
 const colorBySelect = document.getElementById("color-by");
 const metadataColSelectionDiv = document.getElementById("metadata-column-selection-div");
@@ -12,6 +13,7 @@ const metadataColNameSelect = document.getElementById("metadata-column-name");
 const tfSelectionDiv = document.getElementById("tf-selection-div");
 const tfManualEntryDiv = document.getElementById("tf-manual-entry-div");
 const geneEntryDiv = document.getElementById("gene-entry-div");
+const colorScaleSelectionDiv = document.getElementById("color-scale-selection-div");
 const tfNameSelect = document.getElementById("tf-name-select");
 const tfManualEntryInput = document.getElementById("tf-manual-entry-input");
 const geneEntryInput = document.getElementById("gene-entry-input");
@@ -63,22 +65,25 @@ if (colorBySelect) {
 			tfManualEntryDiv.classList.remove("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
 			geneEntryDiv.classList.add("hidden");
+			colorScaleSelectionDiv.classList.add("hidden");
 		}
 		else if (this.value === "metadata_columns") {
 			tfSelectionDiv.classList.add("hidden");
 			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.remove("hidden");
 			geneEntryDiv.classList.add("hidden");
+			colorScaleSelectionDiv.classList.add("hidden");
 		}
 		else if (this.value === "gene_expression") {
 			geneEntryDiv.classList.remove("hidden");
+			colorScaleSelectionDiv.classList.remove("hidden");
 			tfSelectionDiv.classList.add("hidden");
 			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
 		}
 		else {
-			geneEntryDiv.classList.remove("hidden");
 			geneEntryDiv.classList.add("hidden");
+			colorScaleSelectionDiv.classList.add("hidden");
 			tfSelectionDiv.classList.add("hidden");
 			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
@@ -123,6 +128,8 @@ function updatePlot(plot_data){
 			displaylogo: false,
 			scrollZoom: true
 		});
+
+		plotTitle.textContent = plot_data.layout.title;
 
 	} else {
 		throw new Error("Received data is not in the expected format.");
@@ -210,6 +217,13 @@ geneEntryInput.addEventListener("keypress", function (event) {
 		}
 	}
 })
+
+colorScaleSelectionDiv.addEventListener("change", function (e) {
+	console.log("ColorScaleSelectionDiv changed successfully.");
+	Plotly.restyle('scatterPlot', {
+		'marker.colorscale': [e.target.value]
+    }, [0]);
+});
 
 if (pointSizeSlider && pointSizeValue) {
 	pointSizeSlider.addEventListener("input", function (e) {
