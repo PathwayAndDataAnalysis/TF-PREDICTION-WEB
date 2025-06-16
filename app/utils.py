@@ -32,7 +32,10 @@ def update_analysis_status(
     metadata_cols=None,
     tfs=None,
     pvalues_path=None,
+    activation_path=None,
     bh_reject_path=None,
+    fdr_level=None,
+    p_val_threshold_path=None,
     z_scores_path=None,
     error=None,
 ):
@@ -52,8 +55,14 @@ def update_analysis_status(
                 analysis["tfs"] = tfs
             if pvalues_path:
                 analysis["pvalues_path"] = pvalues_path
+            if activation_path:
+                analysis["activation_path"] = activation_path
             if bh_reject_path:
                 analysis["bh_reject_path"] = bh_reject_path
+            if fdr_level:
+                analysis.get("inputs")["fdr_level"] = fdr_level
+            if p_val_threshold_path:
+                analysis["p_val_threshold_path"] = p_val_threshold_path
             if z_scores_path:
                 analysis["z_scores_path"] = z_scores_path
             if umap_csv_path:

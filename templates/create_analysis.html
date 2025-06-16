@@ -201,6 +201,30 @@
             </div>
         </div>
 
+        <!-- Benjamini-Hochberg Alpha Section -->
+        <div class="mb-6 p-4 border border-gray-300 rounded-md">
+            <div class="mb-3">
+                <label for="fdr_level" class="block text-sm text-gray-700 font-medium mb-1">
+                    Desired False Discovery Rate Level (α) for Benjamini-Hochberg Correction
+                </label>
+                <input
+                    type="number"
+                    name="fdr_level"
+                    id="fdr_level"
+                    value="0.05"
+                    min="0.001"
+                    max="0.2"
+                    step="0.001"
+                    class="w-full p-2 border border-gray-300 rounded-md text-sm"
+                    placeholder="e.g., 0.05"
+                />
+                <p class="text-xs text-gray-500 mt-1">
+                    Set α between 0.001 and 0.2. Default is 0.05.
+                </p>
+            </div>
+        </div>
+
+
         <div class="flex items-center justify-start mt-6">
             <input type="submit" value="Start Analysis"
                 class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline cursor-pointer"

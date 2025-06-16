@@ -19,8 +19,8 @@ CORES_USED = max(1, int(os.cpu_count() * 0.8))  # Use 80% of available cores
 
 
 def bh_fdr_correction(
-        p_value_df: pd.DataFrame, alpha: float = 0.05
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+        p_value_df: pd.DataFrame, alpha: float
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
     """
     Performs Benjamini-Hochberg FDR correction on p-values from a file
     and returns both adjusted p-values and rejection status.
@@ -35,6 +35,8 @@ def bh_fdr_correction(
     df_reject_status = pd.DataFrame(
         index=p_value_df.index, columns=p_value_df.columns, dtype="boolean"
     )  # For True/False/NA
+    # Compute threshold per TF
+    thresholds = {}
 
     for tf_name in p_value_df.columns:
         original_pvals_for_tf = p_value_df[tf_name].dropna()
@@ -48,11 +50,14 @@ def bh_fdr_correction(
             method="fdr_bh",
             is_sorted=False,
         )
+        # Store the threshold for this TF
+        thresholds[tf_name] = original_pvals_for_tf[reject_flags].max() if reject_flags.any() else np.nan
 
         df_adjusted_pvals.loc[original_pvals_for_tf.index, tf_name] = corrected_pvals
         df_reject_status.loc[original_pvals_for_tf.index, tf_name] = reject_flags
 
-    return df_adjusted_pvals, df_reject_status
+    thresholds_seris = pd.Series(thresholds, dtype=float)
+    return df_adjusted_pvals, df_reject_status, thresholds_seris
 
 
 ###############################################################################
@@ -167,7 +172,7 @@ def _process_single_cell(
 
 
 def run_tf_analysis(
-        user_id, analysis_id, analysis_data, adata, update_analysis_status_fn
+        user_id, analysis_id, analysis_data, adata, fdr_level, update_analysis_status_fn
 ):
     try:
         update_analysis_status_fn(
@@ -259,12 +264,15 @@ def run_tf_analysis(
                             p_values_df.at[cell_name, regulator] = p_value
                             activation_df.at[cell_name, regulator] = direction
 
-        # ───── Save results ───────────────────────────────────────────────────────
+        # ───── Save pvalue and activation results ─────────────────────────────────────
         result_path = analysis_data.get("results_path", None)
 
         p_values_path = os.path.join(result_path, "p_values.csv")
         print(f"Saving p-values to {p_values_path}...")
         p_values_df.to_csv(p_values_path, index=True)
+        activation_path = os.path.join(result_path, "activation.csv")
+        print(f"Saving activation results to {activation_path}...")
+        activation_df.to_csv(activation_path, index=True)
 
         # ───── Run Benjamini Hotchberg FDR Correction ────────────────────────────────
         update_analysis_status_fn(
@@ -272,9 +280,10 @@ def run_tf_analysis(
             analysis_id=analysis_id,
             status="Running BH FDR correction",
             pvalues_path=p_values_path,
+            activation_path=activation_path,
         )
         print("Running Benjamini-Hochberg FDR correction...")
-        _, reject = bh_fdr_correction(p_values_df)
+        _, reject, p_val_thresholds_seris = bh_fdr_correction(p_value_df=p_values_df, alpha=fdr_level)
         tf_counts = reject.sum().sort_values(ascending=False)
 
         final_output = pd.DataFrame(0, index=reject.index, columns=reject.columns)
@@ -289,12 +298,18 @@ def run_tf_analysis(
         print(f"Saving FDR results to {bh_reject_path}...")
         final_output.to_csv(bh_reject_path, index=True)
 
+        p_val_threshold_path = os.path.join(result_path, "p_val_thresholds.csv")
+        print(f"Saving p-value thresholds to {p_val_threshold_path}...")
+        p_val_thresholds_seris.to_csv(p_val_threshold_path, index=True)
+
         update_analysis_status_fn(
             user_id=user_id,
             analysis_id=analysis_id,
             status="Completed",
             tfs=tf_counts.index.tolist(),
             bh_reject_path=bh_reject_path,
+            fdr_level=fdr_level,
+            p_val_threshold_path=p_val_threshold_path,
             z_scores_path=z_scores_path
         )
         current_app.logger.info(

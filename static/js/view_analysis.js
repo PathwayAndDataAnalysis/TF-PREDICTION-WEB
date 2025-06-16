@@ -5,6 +5,7 @@ const defaultPointSize = 4;
 const defaultOpacity = 0.5;
 
 // Plot configuration panel logic
+const plotConfigForm = document.getElementById("plot-config-form");
 const plotTitle = document.getElementById("plot-title");
 const plotTypeSelect = document.getElementById("plot-type");
 const colorBySelect = document.getElementById("color-by");
@@ -22,6 +23,11 @@ const pointSizeValue = document.getElementById("point-size-value");
 const opacitySlider = document.getElementById("opacity");
 const opacityValue = document.getElementById("opacity-value");
 const showLegendCheckbox = document.getElementById("show-legend");
+const fdrLevelDiv = document.getElementById("fdr-level-div");
+const fdrLevel = document.getElementById("fdr-level");
+const pValueThresholdDiv = document.getElementById("p-val-threshold-div");
+const pValueThreshold = document.getElementById("p-val-threshold");
+const reRunFDRCorrectionButton = document.getElementById("re-run-fdr-correction");
 
 plotTypeSelect.addEventListener("change", function () {
 	if (this.value === "umap_plot") {  // UMAP Plot
@@ -66,6 +72,8 @@ if (colorBySelect) {
 			metadataColSelectionDiv.classList.add("hidden");
 			geneEntryDiv.classList.add("hidden");
 			colorScaleSelectionDiv.classList.add("hidden");
+			fdrLevelDiv.classList.remove("hidden");
+			pValueThresholdDiv.classList.remove("hidden");
 		}
 		else if (this.value === "metadata_columns") {
 			tfSelectionDiv.classList.add("hidden");
@@ -73,6 +81,8 @@ if (colorBySelect) {
 			metadataColSelectionDiv.classList.remove("hidden");
 			geneEntryDiv.classList.add("hidden");
 			colorScaleSelectionDiv.classList.add("hidden");
+			fdrLevelDiv.classList.add("hidden");
+			pValueThresholdDiv.classList.add("hidden");
 		}
 		else if (this.value === "gene_expression") {
 			geneEntryDiv.classList.remove("hidden");
@@ -80,6 +90,8 @@ if (colorBySelect) {
 			tfSelectionDiv.classList.add("hidden");
 			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
+			fdrLevelDiv.classList.add("hidden");
+			pValueThresholdDiv.classList.add("hidden");
 		}
 		else {
 			geneEntryDiv.classList.add("hidden");
@@ -87,6 +99,8 @@ if (colorBySelect) {
 			tfSelectionDiv.classList.add("hidden");
 			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
+			fdrLevelDiv.classList.add("hidden");
+			pValueThresholdDiv.classList.add("hidden");
 		}
 	});
 }
@@ -129,7 +143,14 @@ function updatePlot(plot_data){
 			scrollZoom: true
 		});
 
+		console.log("plot_data", plot_data);
+
 		plotTitle.textContent = plot_data.layout.title;
+		fdrLevel.value = plot_data.fdr_level;
+
+		if(plot_data.p_value_threshold){
+			pValueThreshold.textContent = "p-value threshold: " + plot_data.p_value_threshold;
+		}
 
 	} else {
 		throw new Error("Received data is not in the expected format.");
@@ -206,7 +227,7 @@ geneEntryInput.addEventListener("keypress", function (event) {
 				"POST",
 				{ selected_gene: gene_name, plot_type: plotTypeSelect.value }
 			).then(() => {
-				console.log("Gene expression plot loaded successfully.");
+				// console.log("Gene expression plot loaded successfully.");
 			})
 				.catch((err) => {
 					console.error("Failed to load plot:", err);
@@ -245,7 +266,33 @@ if (showLegendCheckbox) {
 	});
 }
 
-const plotConfigForm = document.getElementById("plot-config-form");
+reRunFDRCorrectionButton.addEventListener("click", async function (e) {
+	try {
+		document.getElementById("plot-loading-spinner").style.display = "block";
+		const response = await fetch(
+			`/analysis/re-run-fdr-correction/${window.analysis.id}`,
+			{
+				method: "POST",
+				headers: {"Content-Type": "application/json"},
+				body: JSON.stringify({fdr_level: fdrLevel.value})
+			}
+		);
+		if (!response.ok) {
+			alert(
+				`Failed to re-run FDR correction. Server responded with status ${response.status}.`
+			)
+		}else{
+			alert("FDR correction re-run successfully. Reload the page to see the updated plot.");
+			window.location.reload();
+		}
+		document.getElementById("plot-loading-spinner").style.display = "none";
+	}
+	catch (error) {
+		console.error("Error re-running FDR correction:", error);
+		alert("Failed to re-run FDR correction. Please try again later.");
+	}
+});
+
 if (plotConfigForm) {
 	plotConfigForm.addEventListener("submit", function (event) {
 		event.preventDefault();
@@ -272,8 +319,14 @@ async function getPlotData(plot_type = "umap_plot", apiUrl, method = "GET", body
 
 		let data;
 		try {
-			data = await response.json();
-			console.log("Plot data", data);
+			if (response.ok) {
+				data = await response.json();
+				updatePlot(data)
+			}
+			else {
+				data = await response.json();
+				alert(`Error: ${response.status} - ${data.error}`);
+			}
 		} catch (jsonError) {
 			if (!response.ok) {
 				throw new Error(
@@ -290,10 +343,9 @@ async function getPlotData(plot_type = "umap_plot", apiUrl, method = "GET", body
 				`Failed to fetch plot data. Server responded with status ${response.status}.`;
 			throw new Error(errorMessage);
 		}
-
-		updatePlot(data)
 	} catch (error) {
 		console.error("Error in getPlotData:", error);
+		alert(`Error loading plot: ${error.message}`);
 	} finally {
 		document.getElementById("plot-loading-spinner").style.display = "none";
 	}

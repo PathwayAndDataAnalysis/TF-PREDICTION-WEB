@@ -27,7 +27,7 @@ from . import (
     find_analysis_by_id,
     get_file_path,
 )
-from .tf_analysis import run_tf_analysis
+from .tf_analysis import run_tf_analysis, bh_fdr_correction
 from .umap_pipeline import run_umap_pipeline
 from .utils import run_in_background, update_analysis_status, infer_delimiter
 
@@ -390,6 +390,9 @@ def create_analysis():
             return redirect(url_for("main_routes.create_analysis_page"))
     # else: # User wants to generate UMAP, TODO: Validate UMAP parameters
 
+    # Desired FDR Level (alpha) for Benjamini-Hochberg correction
+    fdr_level = request.form.get("fdr_level", default=0.05, type=float)
+
     all_users_data = get_all_users_data()
     current_user_node = all_users_data.setdefault(
         current_user.id, {"password": "HASH_PLACEHOLDER", "files": [], "analyses": []}
@@ -448,6 +451,7 @@ def create_analysis():
                     else {}
                 ),
             },
+            "fdr_level": fdr_level,
         },
         **({"metadata_cols": metadata_cols} if not have_h5ad and metadata_file else {}),
     }
@@ -548,6 +552,7 @@ def generate_scatter_plot_response(
             "layout": layout,
             "metadata_cols": analysis_to_view.get("metadata_cols", []),
             "tfs": analysis_to_view.get("tfs", []),
+            "fdr_level": analysis_to_view.get("inputs", {}).get("fdr_level", 0.05),
         }
         return jsonify(graph_data), 200
 
@@ -676,11 +681,16 @@ def get_layout_and_metadata_dfs(analysis, user_id):
     return plot_df, metadata_df
 
 
-def get_layout_and_bh_reject_df(analysis, user_id):
-    """Return plot_df and tfs_df for the given analysis."""
+def get_layout_and_bh_reject_df(analysis, selected_tf_name):
+    """Return plot_df, tfs_df, and p_value_threshold for the given analysis."""
     layout_source = analysis.get("inputs", {}).get("layout", {}).get("source")
     bh_reject_file = analysis.get("bh_reject_path", "")
     bh_reject = pd.read_csv(bh_reject_file, index_col=0, low_memory=False)
+
+    p_value_threshold_path = analysis.get("p_val_threshold_path")
+    p_val_threshold_series = pd.read_csv(p_value_threshold_path, index_col=0).iloc[:, 0]
+    p_val_threshold = p_val_threshold_series.get(selected_tf_name, None)
+
     if layout_source == "file":
         layout_filepath = (
             analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
@@ -693,7 +703,7 @@ def get_layout_and_bh_reject_df(analysis, user_id):
         )
         sep = infer_delimiter(layout_filepath)
         plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
-    return plot_df, bh_reject
+    return plot_df, bh_reject, p_val_threshold
 
 
 def get_layout_and_gene_exp_levels_df(analysis, gene_name):
@@ -736,6 +746,7 @@ def get_layout_and_gene_exp_levels_df(analysis, gene_name):
             current_app.logger.error(
                 f"Gene '{gene_name}' not found in z-score data for analysis_id '{analysis['id']}'."
             )
+            flash(f"Gene '{gene_name}' not found in z-score data.")
             return (
                 jsonify({"error": f"Gene '{gene_name}' not found in z-score data."}),
                 400,
@@ -743,8 +754,10 @@ def get_layout_and_gene_exp_levels_df(analysis, gene_name):
         # Filter for the specific gene
         gene_exp_levels_df = z_scores_df[[gene_name]].copy()
         plot_df = plot_df.merge(gene_exp_levels_df, left_index=True, right_index=True)
-        # Replace NaN values with 0 for plotting of gene_name column
-        plot_df[gene_name] = plot_df[gene_name].fillna(0)
+        # # Replace NaN values with 0 for plotting of gene_name column
+        # plot_df[gene_name] = plot_df[gene_name].fillna(0)
+        # Remove the rows if gene_name column has NaN values
+        plot_df = plot_df.dropna(subset=[gene_name])
 
         return plot_df
 
@@ -895,6 +908,7 @@ def get_metadata_color_by(analysis_id):
             "layout": layout,
             "metadata_cols": metadata_cols,
             "tfs": analysis.get("tfs", []),
+            "fdr_level": analysis.get("inputs", {}).get("fdr_level", 0.05),
         }
         current_app.logger.info(
             f"Successfully generated colored plot for analysis_id={analysis_id}, metadata_cluster='{metadata_cluster}', plot_type='{plot_type}'"
@@ -930,49 +944,49 @@ def get_tf_color_by(analysis_id):
         )
         return jsonify({"error": "Analysis is not completed yet."}), 400
 
-    tf_activity = request.json.get("selected_tf", "").strip()
+    selected_tf_name = request.json.get("selected_tf", "").strip()
     plot_type = request.json.get("plot_type", "").strip()
     current_app.logger.debug(
-        f"Received TF activity='{tf_activity}', plot_type='{plot_type}' for analysis_id={analysis_id}"
+        f"Received TF activity='{selected_tf_name}', plot_type='{plot_type}' for analysis_id={analysis_id}"
     )
-    if not tf_activity:
+    if not selected_tf_name:
         current_app.logger.warning(
             f"No TF activity provided in request for analysis_id={analysis_id}"
         )
         return jsonify({"error": "TF activity is required."}), 400
 
     tfs = analysis.get("tfs", [])
-    if tf_activity not in tfs:
+    if selected_tf_name not in tfs:
         current_app.logger.warning(
-            f"Requested TF activity '{tf_activity}' not found in tfs for analysis_id={analysis_id}"
+            f"Requested TF activity '{selected_tf_name}' not found in tfs for analysis_id={analysis_id}"
         )
         return (
-            jsonify({"error": f"TF activity '{tf_activity}' not found."}),
+            jsonify({"error": f"TF activity '{selected_tf_name}' not found."}),
             400,
         )
 
     try:
-        plot_df, bh_reject = get_layout_and_bh_reject_df(analysis, current_user.id)
-        if tf_activity not in bh_reject.columns:
+        plot_df, bh_reject, p_value_threshold = get_layout_and_bh_reject_df(analysis, selected_tf_name)
+        if selected_tf_name not in bh_reject.columns:
             current_app.logger.warning(
-                f"TF activity '{tf_activity}' not found in BH reject columns for analysis_id={analysis_id}"
+                f"TF activity '{selected_tf_name}' not found in BH reject columns for analysis_id={analysis_id}"
             )
             return (
                 jsonify(
                     {
-                        "error": f"TF activity '{tf_activity}' not found in BH reject file."
+                        "error": f"TF activity '{selected_tf_name}' not found in BH reject file."
                     }
                 ),
                 400,
             )
 
         plot_df = plot_df.merge(
-            bh_reject[tf_activity].astype(object), left_index=True, right_index=True
+            bh_reject[selected_tf_name].astype(object), left_index=True, right_index=True
         )
         traces, title, x_col, y_col = generate_colored_traces(
             plot_df=plot_df,
             plot_type=plot_type,
-            tf_activity=tf_activity,
+            tf_activity=selected_tf_name,
         )
         layout = {
             "title": title,
@@ -984,15 +998,17 @@ def get_tf_color_by(analysis_id):
             "layout": layout,
             "metadata_cols": analysis.get("metadata_cols", []),
             "tfs": analysis.get("tfs", []),
+            "fdr_level": analysis.get("inputs", {}).get("fdr_level", 0.05),
+            "p_value_threshold": p_value_threshold,
         }
         current_app.logger.info(
-            f"Successfully generated colored plot for analysis_id={analysis_id}, tf_activity='{tf_activity}', plot_type='{plot_type}'"
+            f"Successfully generated colored plot for analysis_id={analysis_id}, selected_tf_name='{selected_tf_name}', plot_type='{plot_type}'"
         )
         return jsonify(graph_data), 200
 
     except Exception as e:
         current_app.logger.error(
-            f"Error in get_tf_color_by for analysis_id={analysis_id}, tf_activity='{tf_activity}', plot_type='{plot_type}': {e}",
+            f"Error in get_tf_color_by for analysis_id={analysis_id}, selected_tf_name='{selected_tf_name}', plot_type='{plot_type}': {e}",
             exc_info=True,
         )
         return jsonify({"error": "Internal server error."}), 500
@@ -1066,6 +1082,7 @@ def get_gene_expression_color_by(analysis_id):
             "layout": layout,
             "metadata_cols": analysis.get("metadata_cols", []),
             "tfs": analysis.get("tfs", []),
+            "fdr_level": analysis.get("inputs", {}).get("fdr_level", 0.05),
         }
         current_app.logger.info(
             f"Successfully generated colored plot for analysis_id={analysis_id}, gene_name='{gene_name}', plot_type='{plot_type}'"
@@ -1078,6 +1095,94 @@ def get_gene_expression_color_by(analysis_id):
             exc_info=True,
         )
         return jsonify({"error": "Internal server error."}), 500
+
+@main_bp.route("/analysis/re-run-fdr-correction/<analysis_id>", methods=["POST"])
+@login_required
+def re_run_fdr_correction(analysis_id):
+    fdr_level = float(request.json.get("fdr_level"))
+    if fdr_level <= 0 or fdr_level >= 1:
+        current_app.logger.warning(
+            f"Invalid FDR level provided: {fdr_level} for analysis_id={analysis_id}"
+        )
+        flash("Invalid FDR level. FDR level must be between 0 and 1.", "danger")
+
+    all_users_data = get_all_users_data()
+    user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
+
+    analysis = find_analysis_by_id(user_analyses, analysis_id)
+    if not analysis:
+        current_app.logger.warning(
+            f"Analysis not found: analysis_id={analysis_id} for user={current_user.id}"
+        )
+        return jsonify({"error": "Analysis not found."}), 404
+    if analysis.get("status") != "Completed":
+        current_app.logger.info(
+            f"Analysis not completed yet: analysis_id={analysis_id} for user={current_user.id}"
+        )
+        return jsonify({"error": "Analysis is not completed yet."}), 400
+
+    pvalues_path = analysis.get("pvalues_path", "")
+    activation_path = analysis.get("activation_path", "")
+    p_val_threshold_path = analysis.get("p_val_threshold_path", "")
+    if not os.path.exists(pvalues_path):
+        current_app.logger.error(
+            f"P-values file '{pvalues_path}' not found for analysis_id '{analysis_id}'."
+        )
+        return (
+            jsonify({"error": "P-values file not found. Cannot re-run FDR correction."}),
+            404,
+        )
+    if not os.path.exists(activation_path):
+        current_app.logger.error(
+            f"Activation file '{activation_path}' not found for analysis_id '{analysis_id}'."
+        )
+        return (
+            jsonify({"error": "Activation file not found. Cannot re-run FDR correction."}),
+            404,
+        )
+    try:
+        # Read the p-values file
+        current_app.logger.info(
+            f"Reading p-values from {pvalues_path} and activation data from {activation_path}"
+        )
+        pvalues_df = pd.read_csv(pvalues_path, index_col=0)
+        activation_df = pd.read_csv(activation_path, index_col=0)
+        bh_reject_path = analysis.get("bh_reject_path", "")
+
+        current_app.logger.info(
+            f"Re-running FDR correction for analysis_id={analysis_id} with fdr_level={fdr_level}"
+        )
+        # Perform FDR correction
+        _, reject, p_val_thresholds_seris = bh_fdr_correction(p_value_df=pvalues_df, alpha=fdr_level)
+
+        final_output = pd.DataFrame(0, index=reject.index, columns=reject.columns)
+        # Where the rejection is True, fill in the direction from activation_df
+        final_output[reject] = activation_df[reject]
+
+        # Propagate NaNs for cells/TFs where analysis couldn't be run
+        final_output[pvalues_df.isna()] = np.nan
+        final_output = final_output.astype("Int64")  # Use nullable integer type
+
+        # Save the FDR corrected results
+        final_output.to_csv(bh_reject_path, index=True)
+        p_val_thresholds_seris.to_csv(p_val_threshold_path, index=True)
+
+        current_app.logger.info(
+            f"FDR correction re-run successfully for analysis_id={analysis_id} with fdr_level={fdr_level}"
+        )
+        # Update fdr_level in analysis inputs
+        update_analysis_status(user_id=current_user.id, analysis_id=analysis_id, status="Completed", fdr_level=fdr_level)
+
+        flash("FDR correction re-run successfully. Refresh the tab to see updated data", "success")
+        return jsonify({"message": "FDR correction re-run successfully. Refresh the tab to see updated data"}), 200
+
+    except Exception as e:
+        current_app.logger.error(
+            f"Error re-running FDR correction for analysis_id={analysis_id}: {e}",
+            exc_info=True,
+        )
+        return jsonify({"error": "Internal server error."}), 500
+
 
 
 @main_bp.route("/analysis/delete/<analysis_id>", methods=["POST"])

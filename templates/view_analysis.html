@@ -164,7 +164,38 @@ block content %}
                                 <option value="Rainbow">Rainbow</option>
                                 <option value="Greys">Greys</option>
                             </select>
+
+                            <p class="text-xs text-gray-500 mt-1">Displays z-score values for gene expression intensity.</p>
                         </div>
+                    </div>
+
+                    <div id="fdr-level-div" class="border border-gray-300 rounded-md  px-2 pt-2 mt-2 mb-2 fill-slate-100 hidden">
+                        <label for="fdr-level" class="block text-sm text-gray-700 font-medium mb-1">
+                            False Discovery Rate Level (α) for Benjamini-Hochberg Correction
+                        </label>
+                        <div class="flex items-center space-x-2">
+                            <input
+                                type="number"
+                                name="fdr-level"
+                                id="fdr-level"
+                                value="0.00"
+                                min="0.001"
+                                max="0.2"
+                                step="0.001"
+                                class="p-2 border border-gray-300 rounded-md text-sm flex-grow"
+                                placeholder="e.g., 0.05"
+                            />
+                            <button type="button" id="re-run-fdr-correction" class="ml-4 bg-blue-500 hover:bg-blue-700 text-sm text-white py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">
+                                Re-run FDR Correction
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2 mb-2">
+                            Set α between 0.001 and 0.2. Default is 0.05.
+                        </p>
+                    </div>
+
+                    <div id="p-val-threshold-div" class="border border-gray-300 rounded-md  p-2 pt-2 mt-2 mb-8 fill-slate-100 hidden">
+                        <p id="p-val-threshold" class="text-sm">p-value threshold: </p>
                     </div>
 
                     <div class="border border-gray-300 rounded-md bg-gray-100 px-2 pt-2 mt-2 fill-slate-100">

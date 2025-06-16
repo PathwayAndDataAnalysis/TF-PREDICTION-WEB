@@ -131,6 +131,7 @@ def run_umap_pipeline(
             analysis_id=analysis_id,
             analysis_data=analysis_data,
             adata=adata,
+            fdr_level=analysis_data["inputs"].get("fdr_level", 0.05),
             update_analysis_status_fn=update_status_fn,
         )
 
