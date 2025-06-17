@@ -24,6 +24,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```bash
 # Install Python 3.12 using UV
 uv python install 3.12
+
+# Set Python 3.12 as the default for this project
+uv python use 3.12
 ```
 
 ### 3. Install Node.js v22.11.
