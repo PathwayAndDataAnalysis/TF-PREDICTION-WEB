@@ -412,7 +412,7 @@ def create_analysis():
         "id": analysis_id,
         "name": analysis_name,
         "status": "In Progress",
-        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "created_at": datetime.now().isoformat(),
         "results_path": analysis_data_path,
         "inputs": {
             "gene_expression": {
