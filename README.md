@@ -2,9 +2,9 @@
 
 ## Prerequisites
 
-- Python 3.12 or higher
+- Python 3.12 or higher (can be installed via UV)
 - [UV Package Manager](https://astral.sh/uv) (for Python dependencies)
-- Node.js (for frontend dependencies)
+- Node.js v22.11.x (for frontend dependencies)
 - Git
 
 ## Installation Steps
@@ -19,7 +19,22 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 (Invoke-WebRequest -Uri "https://astral.sh/uv/install.ps1" -UseBasicParsing).Content | pwsh -Command -
 ```
 
-### 2. Clone and Setup Project
+### 2. Install Python 3.12 via UV
+
+```bash
+# Install Python 3.12 using UV
+uv python install 3.12
+```
+
+### 3. Install Node.js v22.11.
+
+```bash
+# Install Node.js v22.11.x
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+### 4. Clone and Setup Project
 
 ```bash
 # Clone the repository
@@ -34,11 +49,13 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv pip install -e .
 ```
 
-### 3. Setup Frontend Dependencies
+### 5. Setup Frontend Dependencies
 
 ```bash
 # Install Node.js dependencies
 npm install
+
+npm run build:css  # Build CSS
 ```
 
 ## Running the Application
@@ -46,12 +63,13 @@ npm install
 ### Development Mode
 
 ```bash
-# Terminal 1: Run Flask backend
-uv run main.py
-
-# Terminal 2: Run frontend development server
+# Terminal 1: Run frontend development server
 npm run watch:css
+
+# Terminal 2: Run Flask backend
+uv run main.py
 ```
+
 
 
 ## Input File Requirements
