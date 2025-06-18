@@ -1,17 +1,57 @@
 import os
-
 import pandas as pd
 import scanpy as sc
+import psutil
 from flask import current_app
+
+
+def validate_input_files(analysis_data):
+    """Validate that all required input files exist and are readable."""
+    gene_expr = analysis_data["inputs"]["gene_expression"]
+
+    if gene_expr["source"] == "h5ad":
+        filepath = gene_expr["h5ad_filepath"]
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"[UMAP] H5AD file not found: {filepath}")
+
+        # Check file size
+        file_size = os.path.getsize(filepath)
+        if file_size == 0:
+            raise ValueError(f"[UMAP] H5AD file is empty: {filepath}")
+
+        # Try to read the file
+        try:
+            adata = sc.read_h5ad(filepath)
+            if adata.n_obs == 0 or adata.n_vars == 0:
+                raise ValueError(f"[UMAP] H5AD file contains no data: {filepath}")
+        except Exception as e:
+            raise ValueError(f"[UMAP] Failed to read H5AD file {filepath}: {e}")
+
+    else:
+        # Validate separate files
+        gene_exp_filepath = gene_expr.get("gene_exp_filepath")
+        metadata_filepath = gene_expr.get("metadata_filepath")
+
+        if not gene_exp_filepath or not os.path.exists(gene_exp_filepath):
+            raise FileNotFoundError(f"[UMAP] Gene expression file not found: {gene_exp_filepath}")
+
+        if metadata_filepath and not os.path.exists(metadata_filepath):
+            raise FileNotFoundError(f"[UMAP] Metadata file not found: {metadata_filepath}")
 
 
 def run_umap_pipeline(
     user_id, analysis_id, analysis_data, update_status_fn, run_analysis_fn
 ):
     try:
-        current_app.logger.info(
-            f"[UMAP] Starting UMAP pipeline for user '{user_id}', analysis '{analysis_id}'."
-        )
+        current_app.logger.info(f"[UMAP] Starting UMAP pipeline for user '{user_id}', analysis '{analysis_id}'.")
+
+        # Validate input files first
+        validate_input_files(analysis_data)
+
+        # Check system resources
+        memory = psutil.virtual_memory()
+        if memory.percent > 85:
+            raise MemoryError("[UMAP] Insufficient memory for UMAP processing")
 
         # 1. Load data
         gene_expr = analysis_data["inputs"]["gene_expression"]
@@ -120,21 +160,38 @@ def run_umap_pipeline(
         umap_df.to_csv(umap_csv_path)
 
         # 4. Update status to Completed
-        current_app.logger.info(f"[UMAP] UMAP pipeline completed successfully for analysis '{analysis_id}'.")
         update_status_fn(user_id=user_id, analysis_id=analysis_id, status="Completed", umap_csv_path=umap_csv_path, metadata_cols=metadata_cols)
+        current_app.logger.info(f"[UMAP] UMAP pipeline completed successfully for analysis '{analysis_id}'.")
 
         # 5. Run analysis function
         current_app.logger.info(f"[UMAP] Running analysis function for analysis '{analysis_id}'.")
 
-        run_analysis_fn(
-            user_id=user_id,
-            analysis_id=analysis_id,
-            analysis_data=analysis_data,
-            adata=adata,
-            fdr_level=analysis_data["inputs"].get("fdr_level", 0.05),
-            update_analysis_status_fn=update_status_fn,
-        )
+        try:
+            run_analysis_fn(
+                user_id=user_id,
+                analysis_id=analysis_id,
+                analysis_data=analysis_data,
+                adata=adata,
+                fdr_level=analysis_data["inputs"].get("fdr_level", 0.05),
+                update_analysis_status_fn=update_status_fn,
+            )
+        except Exception as e:
+            current_app.logger.error(f"[UMAP] Error in analysis function: {e}")
+            update_status_fn(user_id, analysis_id, "Failed", error=str(e))
+            raise e
 
+    except FileNotFoundError as e:
+        current_app.logger.error(f"[UMAP] File not found: {e}")
+        update_status_fn(user_id, analysis_id, "Failed", error=f"Input file not found: {e}")
+        raise e
+    except MemoryError as e:
+        current_app.logger.error(f"[UMAP] Memory error: {e}")
+        update_status_fn(user_id, analysis_id, "Failed", error="Insufficient memory for processing")
+        raise e
+    except TimeoutError as e:
+        current_app.logger.error(f"[UMAP] Timeout error: {e}")
+        update_status_fn(user_id, analysis_id, "Failed", error="Processing timed out")
+        raise e
     except Exception as e:
         current_app.logger.error(
             f"[UMAP] UMAP pipeline failed for analysis '{analysis_id}': {e}",

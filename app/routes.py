@@ -19,7 +19,9 @@ from flask import (
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-
+import psutil
+import shutil
+from werkzeug.exceptions import RequestEntityTooLarge
 from . import (
     User,
     get_all_users_data,
@@ -35,12 +37,34 @@ from .utils import run_in_background, update_analysis_status, infer_delimiter
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 main_bp = Blueprint("main_routes", __name__)  # No prefix for main app routes like index
 
+MAX_FILE_SIZE = 500 * 1024 * 1024 * 1024  # 500 GB
+MIN_DISK_SPACE = 10 * 1024 * 1024 * 1024  # 10 GB
+
 # Define constants for column names
 CLUSTER_COL = "Cluster"
 UMAP1_COL = "X_umap1"
 UMAP2_COL = "X_umap2"
 PCA1_COL = "X_pca1"
 PCA2_COL = "X_pca2"
+
+
+def check_system_resources():
+    """Check if system has enough resources for processing."""
+    try:
+        # Check disk space
+        disk_usage = shutil.disk_usage(current_app.config["UPLOAD_FOLDER"])
+        if disk_usage.free < MIN_DISK_SPACE:
+            raise ValueError(f"Insufficient disk space. Need at least {MIN_DISK_SPACE / (1024 ** 3):.1f} GB free.")
+
+        # Check memory
+        memory = psutil.virtual_memory()
+        if memory.available < 2 * 1024 * 1024 * 1024:  # 2 GB
+            raise ValueError("Insufficient memory available for processing.")
+
+        return True
+    except Exception as e:
+        current_app.logger.error(f"System resource check failed: {e}")
+        return False
 
 
 # --- Helper functions (get_user_specific_data_path, allowed_file as before) ---
@@ -125,80 +149,98 @@ def index():
 @main_bp.route("/upload_data", methods=["POST"])
 @login_required
 def upload_data():
-    if "data_file" not in request.files:
-        flash("No file part in the request.", "error")
-        return redirect(url_for("main_routes.index"))
-
-    file = request.files["data_file"]
-    description = request.form.get("description", "").strip()
-
-    if file.filename == "":
-        flash("No file selected for upload.", "error")
-        return redirect(url_for("main_routes.index"))
-
-    if file and allowed_file(file.filename):
-        original_filename = file.filename
-        filename = secure_filename(original_filename)  # Sanitize filename
-
-        user_data_storage_path = get_user_specific_data_path(current_user.id)
-        if not user_data_storage_path:
-            flash("Could not access user storage directory.", "error")
+    try:
+        # Check system resources first
+        if not check_system_resources():
+            flash("System resources insufficient for file upload. Please try again later.", "error")
             return redirect(url_for("main_routes.index"))
 
-        destination_file_path = os.path.join(user_data_storage_path, filename)
-
-        all_users_data = get_all_users_data()
-        # Ensure user exists in data; should always be true for logged-in user
-        if current_user.id not in all_users_data:
-            all_users_data[current_user.id] = {
-                "password": "HASH_PLACEHOLDER",
-                "files": [],
-            }  # This should not happen
-
-        user_files_list = all_users_data[current_user.id].get("files", [])
-
-        if any(f["filename"] == filename for f in user_files_list):
-            flash(
-                f'File "{filename}" already exists. Please rename or delete the existing file.',
-                "warning",
-            )
+        if "data_file" not in request.files:
+            flash("No file part in the request.", "error")
             return redirect(url_for("main_routes.index"))
 
-        try:
-            file.save(destination_file_path)
-            # Store info about the file
-            user_files_list.append(
-                {
+        file = request.files["data_file"]
+        description = request.form.get("description", "").strip()
+
+        if file.filename == "":
+            flash("No file selected for upload.", "error")
+            return redirect(url_for("main_routes.index"))
+
+        # Validate file size
+        file.seek(0, 2)  # Seek to end
+        file_size = file.tell()
+        file.seek(0)  # Reset to beginning
+
+        if file_size > MAX_FILE_SIZE:
+            flash(f"File too large. Maximum size is {MAX_FILE_SIZE / (1024 ** 3):.1f} GB.", "error")
+            return redirect(url_for("main_routes.index"))
+
+        if file and allowed_file(file.filename):
+            original_filename = file.filename
+            filename = secure_filename(original_filename)
+
+            user_data_storage_path = get_user_specific_data_path(current_user.id)
+            if not user_data_storage_path:
+                flash("Could not access user storage directory.", "error")
+                return redirect(url_for("main_routes.index"))
+
+            destination_file_path = os.path.join(user_data_storage_path, filename)
+
+            # Check if file already exists
+            all_users_data = get_all_users_data()
+            if current_user.id not in all_users_data:
+                all_users_data[current_user.id] = {"password": "HASH_PLACEHOLDER", "files": []}
+
+            user_files_list = all_users_data[current_user.id].get("files", [])
+
+            if any(f["filename"] == filename for f in user_files_list):
+                flash(
+                    f'File "{filename}" already exists. Please rename or delete the existing file.',
+                    "warning",
+                )
+                return redirect(url_for("main_routes.index"))
+
+            try:
+                with open(destination_file_path, 'wb') as f:
+                    chunk_size = 8192
+                    while True:
+                        chunk = file.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+
+                # Store file info
+                user_files_list.append({
                     "filename": filename,  # The secured filename
                     "original_filename": original_filename,  # Keep original for display if needed
                     "description": description,
                     "path": destination_file_path,  # Store the full path for easier deletion
-                }
-            )
-            all_users_data[current_user.id]["files"] = user_files_list
-            save_all_users_data(all_users_data)
-            flash(
-                f'File "{original_filename}" uploaded successfully as "{filename}"!',
-                "success",
-            )
-        except Exception as e:
-            current_app.logger.error(
-                f"Error saving file {filename} for user {current_user.id}: {e}"
-            )
-            flash(f"An error occurred during file upload: {e}", "error")
-            # Clean up if file was partially saved (optional, complex)
-            if os.path.exists(destination_file_path):
-                try:
-                    os.remove(destination_file_path)
-                except OSError:
-                    current_app.logger.error(
-                        f"Error removing partially saved file {destination_file_path}"
-                    )
-    else:
-        flash(
-            f"File type not allowed or file error. Allowed: {', '.join(current_app.config['ALLOWED_EXTENSIONS'])}",
-            "error",
-        )
+                    "size": file_size,
+                    "uploaded_at": datetime.now().isoformat()
+                })
+
+                all_users_data[current_user.id]["files"] = user_files_list
+                save_all_users_data(all_users_data)
+
+                flash(f'File "{original_filename}" uploaded successfully as "{filename}"!',"success")
+            except Exception as e:
+                current_app.logger.error(f"Error saving file {filename} for user {current_user.id}: {e}")
+                # Clean up partial file
+                if os.path.exists(destination_file_path):
+                    try:
+                        os.remove(destination_file_path)
+                    except OSError:
+                        pass
+                flash(f"An error occurred during file upload: {str(e)}", "error")
+        else:
+            flash(f"File type not allowed. Allowed: {', '.join(current_app.config['ALLOWED_EXTENSIONS'])}", "error")
+
+    except RequestEntityTooLarge:
+        flash("File too large for upload.", "error")
+
+    except Exception as e:
+        current_app.logger.error(f"Unexpected error in upload_data: {e}")
+        flash("An unexpected error occurred. Please try again.", "error")
 
     return redirect(url_for("main_routes.index"))
 
@@ -285,193 +327,219 @@ def create_analysis_page():
 @main_bp.route("/analysis/create", methods=["POST"])
 @login_required
 def create_analysis():
-    current_app.logger.info(f"Create analysis form data: {request.form}")
-    analysis_name = request.form.get("analysis_name", "").strip()
-
-    # Gene Expression Data
-    have_h5ad = request.form.get("have_h5ad") == "on"
-    selected_h5ad_file = request.form.get("selected_h5ad_file")
-    gene_exp_file = request.form.get("gene_exp_file")
-    metadata_file = request.form.get("metadata_file", None)
-    species = request.form.get("species")
-
-    # 2D Layout Data
-    have_2d_layout = request.form.get("have_2d_layout") == "on"
-    layout_file_2d = request.form.get("layout_file_2d")
-
-    # UMAP Parameters (only relevant if not have_2d_layout)
-    umap_parameters = None
-    if not have_2d_layout:
-        try:
-            umap_parameters = {
-                "filter_cells": request.form.get("filter_cells") == "on",
-                "filter_cells_value": request.form.get(
-                    "filter_cells_value", default=500, type=int
-                ),
-                "filter_genes": request.form.get("filter_genes") == "on",
-                "filter_genes_value": request.form.get(
-                    "filter_genes_value", default=100, type=int
-                ),
-                "qc_filter": request.form.get("qc_filter") == "on",
-                "qc_filter_value": request.form.get(
-                    "qc_filter_value", default=10, type=int
-                ),
-                "data_normalize": request.form.get("data_normalize") == "on",
-                "data_normalize_value": request.form.get(
-                    "data_normalize_value", default=10000, type=int
-                ),
-                "log_transform": request.form.get("log_transform") == "on",
-                "pca_components": request.form.get(
-                    "pca_components", default=20, type=int
-                ),
-                "n_neighbors": request.form.get("n_neighbors", default=15, type=int),
-                "min_dist": request.form.get("min_dist", default=0.1, type=float),
-                "metric": request.form.get("metric", default="euclidean"),
-            }
-        except ValueError as e:
-            current_app.logger.error(f"Error parsing UMAP parameters: {e}")
-            flash(
-                "Invalid UMAP parameter value provided. Please check numeric inputs.",
-                "error",
-            )
+    try:
+        # Check system resources
+        if not check_system_resources():
+            flash("System resources insufficient for analysis. Please try again later.", "error")
             return redirect(url_for("main_routes.create_analysis_page"))
 
-    # --- Validation ---
-    if not analysis_name:
-        flash("Analysis name is required.", "error")
-        return redirect(url_for("main_routes.create_analysis_page"))
+        current_app.logger.info(f"Create analysis form data: {request.form}")
 
-    # Gene Expression File Validation
-    if have_h5ad:
-        if not selected_h5ad_file:
-            flash("Please select a .h5ad file.", "error")
-            return redirect(url_for("main_routes.create_analysis_page"))
-    else:
-        if not gene_exp_file:
-            flash("Please select a gene expression file.", "error")
+        # Validate analysis name
+        analysis_name = request.form.get("analysis_name", "").strip()
+        if not analysis_name:
+            flash("Analysis name is required.", "error")
             return redirect(url_for("main_routes.create_analysis_page"))
 
-    # Validate gene expression metadata file if provided
-    metadata_cols = []
-    if metadata_file and gene_exp_file:
+        # Validate analysis name length and characters
+        if len(analysis_name) > 100:
+            flash("Analysis name too long. Maximum 100 characters.", "error")
+            return redirect(url_for("main_routes.create_analysis_page"))
+
+        # Check for existing analysis with same name
         all_users_data = get_all_users_data()
-        user_files = all_users_data.get(current_user.id, {}).get("files", [])
-
-        user_filenames = {f["filename"] for f in user_files}
-        if metadata_file not in user_filenames:
-            flash("Metadata file not found in your files.", "error")
-            return redirect(url_for("main_routes.create_analysis_page"))
-        if gene_exp_file not in user_filenames:
-            flash("Gene expression file not found in your files.", "error")
+        user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
+        if any(a.get("name") == analysis_name for a in user_analyses):
+            flash(f'Analysis "{analysis_name}" already exists. Please choose a different name.', "error")
             return redirect(url_for("main_routes.create_analysis_page"))
 
-        # If both are tabular, check index match
-        if metadata_file.endswith((".csv", ".tsv")) and gene_exp_file.endswith(
-            (".csv", ".tsv")
-        ):
-            gene_exp = pd.read_csv(
-                get_file_path(gene_exp_file, current_user.id), index_col=0
-            )
-            metadata = pd.read_csv(
-                get_file_path(metadata_file, current_user.id), index_col=0
-            )
-            if not gene_exp.index.equals(metadata.index):
+        # Gene Expression Data
+        have_h5ad = request.form.get("have_h5ad") == "on"
+        selected_h5ad_file = request.form.get("selected_h5ad_file")
+        gene_exp_file = request.form.get("gene_exp_file")
+        metadata_file = request.form.get("metadata_file", None)
+        species = request.form.get("species")
+
+        # 2D Layout Data
+        have_2d_layout = request.form.get("have_2d_layout") == "on"
+        layout_file_2d = request.form.get("layout_file_2d")
+
+        # UMAP Parameters (only relevant if not have_2d_layout)
+        umap_parameters = None
+        if not have_2d_layout:
+            try:
+                umap_parameters = {
+                    "filter_cells": request.form.get("filter_cells") == "on",
+                    "filter_cells_value": request.form.get(
+                        "filter_cells_value", default=500, type=int
+                    ),
+                    "filter_genes": request.form.get("filter_genes") == "on",
+                    "filter_genes_value": request.form.get(
+                        "filter_genes_value", default=100, type=int
+                    ),
+                    "qc_filter": request.form.get("qc_filter") == "on",
+                    "qc_filter_value": request.form.get(
+                        "qc_filter_value", default=10, type=int
+                    ),
+                    "data_normalize": request.form.get("data_normalize") == "on",
+                    "data_normalize_value": request.form.get(
+                        "data_normalize_value", default=10000, type=int
+                    ),
+                    "log_transform": request.form.get("log_transform") == "on",
+                    "pca_components": request.form.get(
+                        "pca_components", default=20, type=int
+                    ),
+                    "n_neighbors": request.form.get("n_neighbors", default=15, type=int),
+                    "min_dist": request.form.get("min_dist", default=0.1, type=float),
+                    "metric": request.form.get("metric", default="euclidean"),
+                }
+            except ValueError as e:
+                current_app.logger.error(f"Error parsing UMAP parameters: {e}")
                 flash(
-                    "Gene expression and metadata files do not match in cell indices.",
+                    "Invalid UMAP parameter value provided. Please check numeric inputs.",
                     "error",
                 )
                 return redirect(url_for("main_routes.create_analysis_page"))
-            metadata_cols = metadata.columns.tolist()  # Store metadata columns
 
-    # 2D Layout File Validation
-    if have_2d_layout:
-        if not layout_file_2d:
-            flash("Please select a 2D layout file.", "error")
+        # --- Validation ---
+        if not analysis_name:
+            flash("Analysis name is required.", "error")
             return redirect(url_for("main_routes.create_analysis_page"))
-    # else: # User wants to generate UMAP, TODO: Validate UMAP parameters
 
-    # Desired FDR Level (alpha) for Benjamini-Hochberg correction
-    fdr_level = request.form.get("fdr_level", default=0.05, type=float)
+        # Gene Expression File Validation
+        if have_h5ad:
+            if not selected_h5ad_file:
+                flash("Please select a .h5ad file.", "error")
+                return redirect(url_for("main_routes.create_analysis_page"))
+        else:
+            if not gene_exp_file:
+                flash("Please select a gene expression file.", "error")
+                return redirect(url_for("main_routes.create_analysis_page"))
 
-    all_users_data = get_all_users_data()
-    current_user_node = all_users_data.setdefault(
-        current_user.id, {"password": "HASH_PLACEHOLDER", "files": [], "analyses": []}
-    )
+        # Validate gene expression metadata file if provided
+        metadata_cols = []
+        if metadata_file and gene_exp_file:
+            user_files = all_users_data.get(current_user.id, {}).get("files", [])
 
-    if "analyses" not in current_user_node:
-        current_user_node["analyses"] = []
+            user_filenames = {f["filename"] for f in user_files}
+            if metadata_file not in user_filenames:
+                flash("Metadata file not found in your files.", "error")
+                return redirect(url_for("main_routes.create_analysis_page"))
+            if gene_exp_file not in user_filenames:
+                flash("Gene expression file not found in your files.", "error")
+                return redirect(url_for("main_routes.create_analysis_page"))
 
-    analysis_id = str(uuid.uuid4())
-    analysis_data_path = get_user_analysis_path(current_user.id, analysis_id)
+            # If both are tabular, check index match
+            if metadata_file.endswith((".csv", ".tsv")) and gene_exp_file.endswith(
+                (".csv", ".tsv")
+            ):
+                gene_exp = pd.read_csv(
+                    get_file_path(gene_exp_file, current_user.id), index_col=0
+                )
+                metadata = pd.read_csv(
+                    get_file_path(metadata_file, current_user.id), index_col=0
+                )
+                if not gene_exp.index.equals(metadata.index):
+                    flash(
+                        "Gene expression and metadata files do not match in cell indices.",
+                        "error",
+                    )
+                    return redirect(url_for("main_routes.create_analysis_page"))
+                metadata_cols = metadata.columns.tolist()  # Store metadata columns
 
-    if not analysis_data_path:
-        flash("Could not create storage for analysis. Please try again.", "error")
-        return redirect(url_for("main_routes.create_analysis_page"))
+        # 2D Layout File Validation
+        if have_2d_layout:
+            if not layout_file_2d:
+                flash("Please select a 2D layout file.", "error")
+                return redirect(url_for("main_routes.create_analysis_page"))
+        # else: # User wants to generate UMAP, TODO: Validate UMAP parameters
 
-    new_analysis = {
-        "id": analysis_id,
-        "name": analysis_name,
-        "status": "In Progress",
-        "created_at": datetime.now().isoformat(),
-        "results_path": analysis_data_path,
-        "inputs": {
-            "gene_expression": {
-                "source": "h5ad" if have_h5ad else "SEPARATE_FILES",
-                **({"species": species} if not have_h5ad else {}),
-                **(
-                    {
-                        "h5ad_filepath": get_file_path(
-                            selected_h5ad_file, current_user.id
-                        )
-                    }
-                    if have_h5ad and selected_h5ad_file
-                    else {}
-                ),
-                **(
-                    {"gene_exp_filepath": get_file_path(gene_exp_file, current_user.id)}
-                    if not have_h5ad and gene_exp_file
-                    else {}
-                ),
-                **(
-                    {"metadata_filepath": get_file_path(metadata_file, current_user.id)}
-                    if not have_h5ad and metadata_file
-                    else {}
-                ),
-            },
-            "layout": {
-                "source": "FILE" if have_2d_layout else "UMAP_GENERATED",
-                **(
-                    {"layout_filepath": get_file_path(layout_file_2d, current_user.id)}
-                    if have_2d_layout and layout_file_2d
-                    else {}
-                ),
-                **(
-                    {"umap_settings": umap_parameters}
-                    if not have_2d_layout and umap_parameters
-                    else {}
-                ),
-            },
-            "fdr_level": fdr_level,
-        },
-        **({"metadata_cols": metadata_cols} if not have_h5ad and metadata_file else {}),
-    }
+        # Desired FDR Level (alpha) for Benjamini-Hochberg correction
+        fdr_level = request.form.get("fdr_level", default=0.05, type=float)
 
-    current_user_node["analyses"].append(new_analysis)
-    save_all_users_data(all_users_data)
-
-    # 1. Run UMAP Pipeline in the background to generate 2D layout
-    if not have_2d_layout:
-        run_in_background(
-            run_umap_pipeline,
-            current_user.id,
-            analysis_id,
-            new_analysis,
-            update_status_fn=update_analysis_status,
-            run_analysis_fn=run_tf_analysis,
+        current_user_node = all_users_data.setdefault(
+            current_user.id, {"password": "HASH_PLACEHOLDER", "files": [], "analyses": []}
         )
 
-    flash(f'Analysis "{analysis_name}" created successfully and is pending.', "success")
-    return redirect(url_for("main_routes.index"))
+        if "analyses" not in current_user_node:
+            current_user_node["analyses"] = []
+
+        analysis_id = str(uuid.uuid4())
+        analysis_data_path = get_user_analysis_path(current_user.id, analysis_id)
+
+        if not analysis_data_path:
+            flash("Could not create storage for analysis. Please try again.", "error")
+            return redirect(url_for("main_routes.create_analysis_page"))
+
+        new_analysis = {
+            "id": analysis_id,
+            "name": analysis_name,
+            "status": "In Progress",
+            "created_at": datetime.now().isoformat(),
+            "results_path": analysis_data_path,
+            "inputs": {
+                "gene_expression": {
+                    "source": "h5ad" if have_h5ad else "SEPARATE_FILES",
+                    **({"species": species} if not have_h5ad else {}),
+                    **(
+                        {
+                            "h5ad_filepath": get_file_path(
+                                selected_h5ad_file, current_user.id
+                            )
+                        }
+                        if have_h5ad and selected_h5ad_file
+                        else {}
+                    ),
+                    **(
+                        {"gene_exp_filepath": get_file_path(gene_exp_file, current_user.id)}
+                        if not have_h5ad and gene_exp_file
+                        else {}
+                    ),
+                    **(
+                        {"metadata_filepath": get_file_path(metadata_file, current_user.id)}
+                        if not have_h5ad and metadata_file
+                        else {}
+                    ),
+                },
+                "layout": {
+                    "source": "FILE" if have_2d_layout else "UMAP_GENERATED",
+                    **(
+                        {"layout_filepath": get_file_path(layout_file_2d, current_user.id)}
+                        if have_2d_layout and layout_file_2d
+                        else {}
+                    ),
+                    **(
+                        {"umap_settings": umap_parameters}
+                        if not have_2d_layout and umap_parameters
+                        else {}
+                    ),
+                },
+                "fdr_level": fdr_level,
+            },
+            **({"metadata_cols": metadata_cols} if not have_h5ad and metadata_file else {}),
+        }
+
+        current_user_node["analyses"].append(new_analysis)
+        save_all_users_data(all_users_data)
+
+        # 1. Run UMAP Pipeline in the background to generate 2D layout
+        if not have_2d_layout:
+            run_in_background(
+                run_umap_pipeline,
+                current_user.id,
+                analysis_id,
+                new_analysis,
+                update_status_fn=update_analysis_status,
+                run_analysis_fn=run_tf_analysis
+            )
+
+        flash(f'Analysis "{analysis_name}" created successfully and is pending.', "success")
+        return redirect(url_for("main_routes.index"))
+
+    except Exception as e:
+        current_app.logger.error(f"Error in create_analysis: {e}")
+        flash("An unexpected error occurred while creating analysis.", "error")
+        return redirect(url_for("main_routes.create_analysis_page"))
 
 
 @main_bp.route("/analysis/<analysis_id>")

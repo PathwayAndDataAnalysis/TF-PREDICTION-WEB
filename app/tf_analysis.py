@@ -1,4 +1,6 @@
 import os
+import threading
+import time
 import math
 import numpy as np
 import pandas as pd
@@ -8,9 +10,21 @@ from scipy.sparse import issparse
 from scipy.stats import zscore, norm
 from statsmodels.stats.multitest import multipletests
 from tqdm.auto import tqdm
+import psutil
+import gc
 
 # CORES_USED = 1 # For debugging, use a single core
 CORES_USED = max(1, int(os.cpu_count() * 0.8))  # Use 80% of available cores
+
+
+def check_memory_usage():
+    """Check if we have enough memory for processing."""
+    memory = psutil.virtual_memory()
+    if memory.percent > 90:  # If more than 90% memory is used
+        gc.collect()  # Force garbage collection
+        memory = psutil.virtual_memory()
+        if memory.percent > 90:
+            raise MemoryError("Insufficient memory for processing. Please try with smaller data.")
 
 
 ###############################################################################
@@ -175,146 +189,171 @@ def run_tf_analysis(
         user_id, analysis_id, analysis_data, adata, fdr_level, update_analysis_status_fn
 ):
     try:
-        update_analysis_status_fn(
-            user_id=user_id, analysis_id=analysis_id, status="Running TF analysis"
-        )
+        # Check memory before starting
+        check_memory_usage()
 
-        current_app.logger.info(
-            f"[TF_ANALYSIS] Running TF analysis for user '{user_id}', analysis '{analysis_id}'."
-        )
+        update_analysis_status_fn(user_id=user_id, analysis_id=analysis_id, status="Running TF analysis")
 
-        update_analysis_status_fn(
-            user_id=user_id, analysis_id=analysis_id, status="TF analysis is running"
-        )
+        current_app.logger.info(f"[TF_ANALYSIS] Running TF analysis for user '{user_id}', analysis '{analysis_id}'.")
         current_app.logger.info(f"[TF_ANALYSIS] Analysis data: {analysis_data}")
 
-        # ───── Load gene expression data ────────────────────────────────────────
-        X = adata.X.toarray() if issparse(adata.X) else adata.X.copy()
-        # Treat explicit zero counts as missing for z‑scoring consistency
-        X[X == 0] = np.nan
-        print("Calculating Z-scores...")
-        z_mat = zscore(X, axis=0, nan_policy="omit") # across all cells for a single gene (axis=0)
-        z_df = pd.DataFrame(z_mat, index=adata.obs_names, columns=adata.var_names)
+        # Validate input data
+        if adata is None or adata.n_obs == 0:
+            raise ValueError("Input data is empty or invalid")
+        if adata.n_obs > 150000:  # Limit to 150k cells
+            current_app.logger.warning(f"Large dataset detected: {adata.n_obs} cells. This may take a long time.")
 
-        z_scores_path = os.path.join(
-            analysis_data.get("results_path", ""), "z_scores.csv"
-        )
-        print(f"Saving Z-scores to {z_scores_path}...")
-        z_df.to_csv(z_scores_path, index=True)
+        # Add memory monitoring during processing
+        def monitor_memory():
+            while True:
+                check_memory_usage()
+                time.sleep(30)  # Check every 30 seconds
 
-        # ───── Load TF‑target priors ──────────────────────────────────────────────
-        print("Loading TF-target priors...")
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        priors = pd.read_csv(os.path.join(script_dir, "..", "prior_data", "causal_priors.tsv"), sep="\t")
-        priors = priors[priors["TargetGene"].notna()]
-        expected_cols = {"Regulator", "TargetGene", "RegulatoryEffect"}
-        if not expected_cols.issubset(priors.columns):
-            raise ValueError(f"Prior file must contain columns {expected_cols}")
+        # Start memory monitoring in background
+        memory_thread = threading.Thread(target=monitor_memory, daemon=True)
+        memory_thread.start()
 
-        # 2. Run Analysis
-        current_app.logger.info(
-            f"[TF_ANALYSIS] Starting TF analysis for user '{user_id}', analysis '{analysis_id}'."
-        )
+        try:
+            # ───── Load gene expression data ────────────────────────────────────────
+            X = adata.X.toarray() if issparse(adata.X) else adata.X.copy()
+            X[X == 0] = np.nan
+            print("Calculating Z-scores...")
+            z_mat = zscore(X, axis=0, nan_policy="omit") # across all cells for a single gene (axis=0)
+            z_df = pd.DataFrame(z_mat, index=adata.obs_names, columns=adata.var_names)
 
-        # Pre-define columns for the p_values_df DataFrame
-        all_regulators = priors["Regulator"].unique()
-        p_values_df = pd.DataFrame(index=z_df.index, columns=all_regulators, dtype=float)
-        activation_df = pd.DataFrame(index=z_df.index, columns=all_regulators, dtype=float)
+            z_scores_path = os.path.join(analysis_data.get("results_path", ""), "z_scores.csv")
+            print(f"Saving Z-scores to {z_scores_path}...")
+            z_df.to_csv(z_scores_path, index=True)
 
-        # ───── Parallel processing of cells ───────────────────────────────────────
-        num_cells = len(z_df)
-        if num_cells == 0:
-            print("No cells to process.")
-        else:
-            print(
-                f"Starting TF activity inference for {num_cells} cells using {CORES_USED if CORES_USED > 0 else 'all available'} cores..."
-            )
-            tasks = [
-                delayed(_process_single_cell)(
-                    cell_name,
-                    z_df.loc[cell_name],  # Pass the expression series for the cell
-                    priors,  # Pass the (entire) priors DataFrame
-                )
-                for cell_name in z_df.index
-            ]
+            # ───── Load TF‑target priors ──────────────────────────────────────────────
+            print("Loading TF-target priors...")
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            priors = pd.read_csv(os.path.join(script_dir, "..", "prior_data", "causal_priors.tsv"), sep="\t")
+            priors = priors[priors["TargetGene"].notna()]
+            expected_cols = {"Regulator", "TargetGene", "RegulatoryEffect"}
+            if not expected_cols.issubset(priors.columns):
+                raise ValueError(f"Prior file must contain columns {expected_cols}")
 
-            # Run tasks in parallel, `tqdm` provides a progress bar
-            # `backend="loky"` is robust and default for joblib in many cases, good for cross-platform
-            if CORES_USED == 1:  # Useful for debugging
-                print("Running sequentially (CORES_USED=1)...")
-                cell_results_list = [
-                    _process_single_cell(cell_name, z_df.loc[cell_name], priors)
-                    for cell_name in tqdm(z_df.index, desc="Processing cells")
-                ]
+            # 2. Run Analysis
+            current_app.logger.info(f"[TF_ANALYSIS] Starting TF analysis for user '{user_id}', analysis '{analysis_id}'.")
+            # Pre-define columns for the p_values_df DataFrame
+            all_regulators = priors["Regulator"].unique()
+            p_values_df = pd.DataFrame(index=z_df.index, columns=all_regulators, dtype=float)
+            activation_df = pd.DataFrame(index=z_df.index, columns=all_regulators, dtype=float)
+
+            # ───── Parallel processing of cells ───────────────────────────────────────
+            num_cells = len(z_df)
+            if num_cells == 0:
+                print("No cells to process.")
             else:
-                print(f"Running in parallel with CORES_USED={CORES_USED}...")
-                cell_results_list = Parallel(n_jobs=CORES_USED, backend="loky", verbose=2)(
-                    tqdm(tasks, desc="Processing cells")
+                print(
+                    f"Starting TF activity for {num_cells} cells using {CORES_USED if CORES_USED > 0 else 'all available'} cores..."
                 )
+                tasks = [
+                    delayed(_process_single_cell)(
+                        cell_name,
+                        z_df.loc[cell_name],  # Pass the expression series for the cell
+                        priors,  # Pass the (entire) priors DataFrame
+                    )
+                    for cell_name in z_df.index
+                ]
 
-            # ───── Aggregate results into two separate DataFrames ───────────────────
-            print("\nAggregating results...")
-            for cell_name, scores_dict in tqdm(
-                    cell_results_list, desc="Aggregating scores"
-            ):
-                if scores_dict:
-                    # Unpack the (p_value, direction) tuple for each regulator
-                    for regulator, (p_value, direction) in scores_dict.items():
-                        if regulator in p_values_df.columns:
-                            p_values_df.at[cell_name, regulator] = p_value
-                            activation_df.at[cell_name, regulator] = direction
+                # Run tasks in parallel, `tqdm` provides a progress bar
+                # `backend="loky"` is robust and default for joblib in many cases, good for cross-platform
+                if CORES_USED == 1:  # Useful for debugging
+                    print("Running sequentially (CORES_USED=1)...")
+                    cell_results_list = [
+                        _process_single_cell(cell_name, z_df.loc[cell_name], priors)
+                        for cell_name in tqdm(z_df.index, desc="Processing cells")
+                    ]
+                else:
+                    print(f"Running in parallel with CORES_USED={CORES_USED}...")
+                    cell_results_list = Parallel(n_jobs=CORES_USED, backend="loky", verbose=2)(
+                        tqdm(tasks, desc="Processing cells")
+                    )
 
-        # ───── Save pvalue and activation results ─────────────────────────────────────
-        result_path = analysis_data.get("results_path", None)
+                # ───── Aggregate results into two separate DataFrames ───────────────────
+                print("\nAggregating results...")
+                for cell_name, scores_dict in tqdm(
+                        cell_results_list, desc="Aggregating scores"
+                ):
+                    if scores_dict:
+                        # Unpack the (p_value, direction) tuple for each regulator
+                        for regulator, (p_value, direction) in scores_dict.items():
+                            if regulator in p_values_df.columns:
+                                p_values_df.at[cell_name, regulator] = p_value
+                                activation_df.at[cell_name, regulator] = direction
 
-        p_values_path = os.path.join(result_path, "p_values.csv")
-        print(f"Saving p-values to {p_values_path}...")
-        p_values_df.to_csv(p_values_path, index=True)
-        activation_path = os.path.join(result_path, "activation.csv")
-        print(f"Saving activation results to {activation_path}...")
-        activation_df.to_csv(activation_path, index=True)
+            # ───── Save pvalue and activation results ─────────────────────────────────────
+            result_path = analysis_data.get("results_path", None)
 
-        # ───── Run Benjamini Hotchberg FDR Correction ────────────────────────────────
-        update_analysis_status_fn(
-            user_id=user_id,
-            analysis_id=analysis_id,
-            status="Running BH FDR correction",
-            pvalues_path=p_values_path,
-            activation_path=activation_path,
-        )
-        print("Running Benjamini-Hochberg FDR correction...")
-        _, reject, p_val_thresholds_seris = bh_fdr_correction(p_value_df=p_values_df, alpha=fdr_level)
-        tf_counts = reject.sum().sort_values(ascending=False)
+            p_values_path = os.path.join(result_path, "p_values.csv")
+            print(f"Saving p-values to {p_values_path}...")
+            p_values_df.to_csv(p_values_path, index=True)
+            activation_path = os.path.join(result_path, "activation.csv")
+            print(f"Saving activation results to {activation_path}...")
+            activation_df.to_csv(activation_path, index=True)
 
-        final_output = pd.DataFrame(0, index=reject.index, columns=reject.columns)
-        # Where the rejection is True, fill in the direction from activation_df
-        final_output[reject] = activation_df[reject]
+            # ───── Run Benjamini Hotchberg FDR Correction ────────────────────────────────
+            update_analysis_status_fn(
+                user_id=user_id,
+                analysis_id=analysis_id,
+                status="Running BH FDR correction",
+                pvalues_path=p_values_path,
+                activation_path=activation_path,
+            )
+            print("Running Benjamini-Hochberg FDR correction...")
+            _, reject, p_val_thresholds_seris = bh_fdr_correction(p_value_df=p_values_df, alpha=fdr_level)
+            tf_counts = reject.sum().sort_values(ascending=False)
 
-        # Propagate NaNs for cells/TFs where analysis couldn't be run
-        final_output[p_values_df.isna()] = np.nan
-        final_output = final_output.astype("Int64")  # Use nullable integer type
+            final_output = pd.DataFrame(0, index=reject.index, columns=reject.columns)
+            # Where the rejection is True, fill in the direction from activation_df
+            final_output[reject] = activation_df[reject]
 
-        bh_reject_path = os.path.join(result_path, "bh_reject.csv")
-        print(f"Saving FDR results to {bh_reject_path}...")
-        final_output.to_csv(bh_reject_path, index=True)
+            # Propagate NaNs for cells/TFs where analysis couldn't be run
+            final_output[p_values_df.isna()] = np.nan
+            final_output = final_output.astype("Int64")  # Use nullable integer type
 
-        p_val_threshold_path = os.path.join(result_path, "p_val_thresholds.csv")
-        print(f"Saving p-value thresholds to {p_val_threshold_path}...")
-        p_val_thresholds_seris.to_csv(p_val_threshold_path, index=True)
+            bh_reject_path = os.path.join(result_path, "bh_reject.csv")
+            print(f"Saving FDR results to {bh_reject_path}...")
+            final_output.to_csv(bh_reject_path, index=True)
 
-        update_analysis_status_fn(
-            user_id=user_id,
-            analysis_id=analysis_id,
-            status="Completed",
-            tfs=tf_counts.index.tolist(),
-            bh_reject_path=bh_reject_path,
-            fdr_level=fdr_level,
-            p_val_threshold_path=p_val_threshold_path,
-            z_scores_path=z_scores_path
-        )
+            p_val_threshold_path = os.path.join(result_path, "p_val_thresholds.csv")
+            print(f"Saving p-value thresholds to {p_val_threshold_path}...")
+            p_val_thresholds_seris.to_csv(p_val_threshold_path, index=True)
+
+            update_analysis_status_fn(
+                user_id=user_id,
+                analysis_id=analysis_id,
+                status="Completed",
+                tfs=tf_counts.index.tolist(),
+                bh_reject_path=bh_reject_path,
+                fdr_level=fdr_level,
+                p_val_threshold_path=p_val_threshold_path,
+                z_scores_path=z_scores_path
+            )
+        finally:
+            # Stop memory monitoring
+            memory_thread.join(timeout=1)
+
+        # ───── Final logging and status update ─────────────────────────────────────
         current_app.logger.info(
             f"[TF_ANALYSIS] TF analysis completed for user '{user_id}', analysis '{analysis_id}'."
         )
+
+    except MemoryError as e:
+        current_app.logger.error(f"[TF_ANALYSIS] Memory error: {e}")
+        update_analysis_status_fn(
+            user_id=user_id, analysis_id=analysis_id, status="Error: Insufficient memory"
+        )
+        raise e
+
+    except TimeoutError as e:
+        current_app.logger.error(f"[TF_ANALYSIS] Timeout error: {e}")
+        update_analysis_status_fn(
+            user_id=user_id, analysis_id=analysis_id, status="Error: Analysis timed out"
+        )
+        raise e
 
     except Exception as e:
         current_app.logger.error(

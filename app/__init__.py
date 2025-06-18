@@ -1,11 +1,10 @@
 import json
 import os
+import signal
+from contextlib import contextmanager
 
 from flask import Flask, current_app
 from flask_login import LoginManager, UserMixin
-
-
-# werkzeug.security will be used in routes.py or models if you make a user model file
 
 
 # --- User Model ---
