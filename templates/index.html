@@ -117,6 +117,11 @@
                     {% endif %}
                 </p>
                 <p class="text-xs text-gray-400">Created: {{ analysis.created_at | format_datetime }}</p>
+                <p class="text-sm text-gray-500">
+                    <span class="font-semibold text-red-600">
+                      {{ analysis.error | default('') }}
+                    </span>
+                </p>
 
             </div>
             <div>
