@@ -326,7 +326,7 @@ def run_tf_analysis(
                 user_id=user_id,
                 analysis_id=analysis_id,
                 status="Completed",
-                tfs=tf_counts.index.tolist(),
+                tfs=tf_counts.index.tolist() if(tf_counts.index.tolist()) else [],
                 bh_reject_path=bh_reject_path,
                 fdr_level=fdr_level,
                 p_val_threshold_path=p_val_threshold_path,
