@@ -29,6 +29,11 @@ const pValueThresholdDiv = document.getElementById("p-val-threshold-div");
 const pValueThreshold = document.getElementById("p-val-threshold");
 const reRunFDRCorrectionButton = document.getElementById("re-run-fdr-correction");
 
+const moreInfoBtn = document.getElementById("more-info-btn");
+const modal = document.getElementById("more-info-modal");
+const closeModalBtn = document.getElementById("close-modal-btn");
+
+
 plotTypeSelect.addEventListener("change", function () {
 	if (this.value === "umap_plot") {  // UMAP Plot
 		console.log("UMAP plot selected");
@@ -368,4 +373,24 @@ document.addEventListener("DOMContentLoaded", function () {
 	window.addEventListener("resize", () => {
 		Plotly.Plots.resize("scatterPlot");
 	});
+
+	// Popup modal logic
+    if (moreInfoBtn && modal && closeModalBtn) {
+        moreInfoBtn.addEventListener("click", () => {
+            modal.classList.remove("hidden");
+        });
+        closeModalBtn.addEventListener("click", () => {
+            modal.classList.add("hidden");
+        });
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) {
+                modal.classList.add("hidden");
+            }
+        });
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") {
+                modal.classList.add("hidden");
+            }
+        });
+    }
 });

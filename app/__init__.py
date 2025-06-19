@@ -149,6 +149,9 @@ def create_app(test_config=None):
     # Register Blueprints
     from . import routes as app_routes  # Using an alias to avoid confusion
 
+    # custom filter to get the basename of a file path
+    app.jinja_env.filters['basename'] = os.path.basename
+
     app.register_blueprint(app_routes.auth_bp)
     app.register_blueprint(app_routes.main_bp)
 

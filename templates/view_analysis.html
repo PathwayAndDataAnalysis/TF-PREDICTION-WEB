@@ -2,9 +2,81 @@
 block content %}
 <div class="container mx-auto flex flex-col h-full">
 	<div class="flex justify-between items-center mb-2 pb-2 border-b">
-		<h1 class="text-2xl font-bold text-gray-800">
-			<span class="text-blue-600">{{ analysis.name }}</span>
-		</h1>
+        <div>
+            <div class="flex items-center space-x-4">
+                <h1 class="text-2xl font-bold text-gray-800">
+                    <span class="text-blue-600">{{ analysis.name }}</span>
+                </h1>
+                <button
+                    id="more-info-btn"
+                    type="button"
+                    class="inline-flex items-center px-3 py-2 bg-blue-500 hover:bg-blue-700 text-white text-sm font-semibold rounded shadow transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-400"
+                >
+                    <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 20a8 8 0 100-16 8 8 0 000 16z"/>
+                    </svg>
+                    More Info
+                </button>
+            </div>
+
+            <!-- Modal -->
+            <div
+                id="more-info-modal"
+                class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 hidden"
+                aria-modal="true"
+                role="dialog"
+            >
+                <div class="bg-white rounded-lg shadow-lg max-w-lg w-full p-6 relative">
+                    <button
+                        id="close-modal-btn"
+                        class="absolute top-2 right-2 text-gray-400 hover:text-gray-700 focus:outline-none"
+                        aria-label="Close"
+                    >
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                    <h3 class="text-xl font-bold text-blue-600 mb-2">Analysis Information</h3>
+                    <div class="text-gray-700 text-sm space-y-2">
+                        <p><strong>Name:</strong> {{ analysis.name }}</p>
+                        <p><strong>Status:</strong> {{ analysis.status }}</p>
+                        <p><strong>Created:</strong> {{ analysis.created_at | format_datetime }}</p>
+
+                        {% if analysis.inputs.gene_expression.source == "h5ad" %}
+                            <p><strong>h5ad File:</strong> {{ analysis.inputs.gene_expression.h5ad_filepath | basename }}</p>
+                        {% else %}
+                            <p><strong>Gene Exp File:</strong> {{ analysis.inputs.gene_expression.gene_exp_filepath | basename }}</p>
+                            <p><strong>Meta Data File:</strong> {{ analysis.inputs.gene_expression.metadata_filepath | basename }}</p>
+                        {% endif %}
+
+                        {% if analysis.inputs.layout.source == "UMAP_GENERATED" %}
+                            <p><strong>Source:</strong> UMAP Generated</p>
+                            {% if analysis.inputs.layout.umap_settings.filter_cells %}
+                                <p><strong>Filter Cells:</strong> {{ analysis.inputs.layout.umap_settings.filter_cells_value }}</p>
+                            {% endif %}
+                            {% if analysis.inputs.layout.umap_settings.filter_genes %}
+                                <p><strong>Filter Genes:</strong> {{ analysis.inputs.layout.umap_settings.filter_genes_value }}</p>
+                            {% endif %}
+                            {% if analysis.inputs.layout.umap_settings.qc_filter %}
+                                <p><strong>QC Filter:</strong> {{ analysis.inputs.layout.umap_settings.qc_filter_value }}</p>
+                            {% endif %}
+                            {% if analysis.inputs.layout.umap_settings.data_normalize %}
+                                <p><strong>Normalize Total Expression:</strong> {{ analysis.inputs.layout.umap_settings.data_normalize_value }}</p>
+                            {% endif %}
+                            <p><strong>Log Transform:</strong> {{ analysis.inputs.layout.umap_settings.log_transform }}</p>
+                            <p><strong>Number of PCA Comps.:</strong> {{ analysis.inputs.layout.umap_settings.pca_components }}</p>
+                            <p><strong>n_neighbors:</strong> {{ analysis.inputs.layout.umap_settings.n_neighbors }}</p>
+                            <p><strong>min_dist:</strong> {{ analysis.inputs.layout.umap_settings.min_dist }}</p>
+                            <p><strong>metric:</strong> {{ analysis.inputs.layout.umap_settings.metric }}</p>
+                        {% else %}
+                            <p><strong>Source:</strong> {{ analysis.inputs.gene_expression.gene_exp_filepath }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
 		<a
 			href="{{ url_for('main_routes.index') }}"
 			class="bg-gray-500 hover:bg-gray-700 text-white font-semibold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out text-sm"
