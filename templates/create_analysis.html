@@ -1,38 +1,41 @@
 {% extends "base.html" %} {% block title %}Create New Analysis{% endblock %} {% block content %}
 <div class="mx-auto mt-2 bg-white p-8 rounded-lg shadow-lg">
-    <h1 class="text-2xl font-bold text-center text-gray-700 mb-6">Create New Analysis</h1>
+    <h1 class="text-xl font-bold text-center text-gray-700 mb-4">Create New Analysis</h1>
     <form method="POST" action="{{ url_for('main_routes.create_analysis') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}" />
 
+        <!-- Analysis Name Section -->
         <div class="mb-4">
-            <label for="analysis_name" class="block text-gray-700 text-sm font-bold mb-2">Analysis Name:</label>
+            <label for="analysis_name" class="block text-gray-700 text-md font-bold mb-2">Analysis Name</label>
             <input type="text" id="analysis_name" name="analysis_name" required
                 class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" />
         </div>
 
         <!-- Gene Expression Section -->
-        <div class="mb-6 p-4 border border-gray-300 rounded-md">
-            <h2 class="text-lg font-semibold text-gray-700 mb-3">Gene Expression Data</h2>
-            <div class="mb-3">
+        <div class="mb-4 p-4 border border-gray-300 rounded-md">
+            <p class="font-bold text-gray-700 mb-3 text-md">Gene Expression Data</p>
+            <div class="mb-3 flex items-center">
                 <input type="checkbox" id="have_h5ad" name="have_h5ad"
                     class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mr-2"
                     onchange="toggleH5adSection()" />
-                <label for="have_h5ad" class="text-gray-700 text-sm font-bold">I have a .h5ad file</label>
+                <label for="have_h5ad" class="text-gray-700 text-sm font-semibold">I have a .h5ad file</label>
             </div>
 
-            <div id="h5ad_selection_section" class="space-y-2 mb-3" style="display: none">
-                <label class="block text-gray-700 text-sm font-bold mb-1">Select .h5ad File:</label>
+            <div id="h5ad_selection_section" class="space-y-2" style="display: none">
+                <label class="block text-gray-700 text-sm font-semibold mb-1">Select .h5ad File:</label>
                 {% if user_files %}
                 <div class="space-y-1 max-h-40 overflow-y-auto border border-gray-200 rounded-md p-2 bg-gray-50">
-                    {% for file_info in user_files %} {% if file_info.filename.endswith('.h5ad') %}
-                    <div class="flex items-center">
-                        <input type="radio" id="h5ad_file_{{ loop.index }}" name="selected_h5ad_file"
-                            value="{{ file_info.filename }}"
-                            class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500 mr-2" />
-                        <label for="h5ad_file_{{ loop.index }}" class="text-sm text-gray-700">{{
-                            file_info.original_filename | default(file_info.filename, true) }}</label>
-                    </div>
-                    {% endif %} {% endfor %}
+                    {% for file_info in user_files %}
+                        {% if file_info.filename.endswith('.h5ad') %}
+                        <div class="flex items-center">
+                            <input type="radio" id="h5ad_file_{{ loop.index }}" name="selected_h5ad_file"
+                                value="{{ file_info.filename }}"
+                                class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500 mr-2" />
+                            <label for="h5ad_file_{{ loop.index }}" class="text-sm text-gray-700">{{
+                                file_info.original_filename | default(file_info.filename, true) }}</label>
+                        </div>
+                        {% endif %}
+                    {% endfor %}
                 </div>
                 {% else %}
                 <p class="text-sm text-gray-600">
@@ -42,21 +45,24 @@
             </div>
 
             <div id="separate_files_section" class="space-y-3">
-                <p class="text-sm text-gray-600 mb-2">If you don't have an.h5ad file, please provide:</p>
+                <hr class="my-4 border-gray-300" />
+                <p class="text-sm text-gray-500 mb-2">If you don't have a .h5ad file, you can also select:</p>
                 <div>
-                    <label for="gene_exp_file" class="block text-gray-700 text-sm font-bold mb-1">Select Gene Expression File:</label>
+                    <label for="gene_exp_file" class="block text-gray-700 text-sm font-semibold mb-1">Select Gene Expression File:</label>
                     <select id="gene_exp_file" name="gene_exp_file"
                         class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
                         <option value="">-- Select a gene expression file --</option>
                         {% for file_info in user_files %}
-                        <option value="{{ file_info.filename }}">
-                            {{ file_info.original_filename | default(file_info.filename, true) }}
-                        </option>
+                            {% if not file_info.filename.endswith('.h5ad') %}
+                            <option value="{{ file_info.filename }}">
+                                {{ file_info.original_filename | default(file_info.filename, true) }}
+                            </option>
+                            {% endif %}
                         {% endfor %}
                     </select>
                 </div>
                 <div>
-                    <label for="species" class="block text-gray-700 text-sm font-bold mb-1">Select Species:</label>
+                    <label for="species" class="block text-gray-700 text-sm font-semibold mb-1">Select Species:</label>
                     <select id="species" name="species"
                         class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
                         <option value="">-- Select a species --</option>
@@ -65,35 +71,87 @@
                     </select>
                 </div>
                 <div>
-                    <label for="metadata_file" class="block text-gray-700 text-sm font-bold mb-1">Select Metadata
-                        File: (Optional)</label>
+                    <label for="metadata_file" class="block text-gray-700 text-sm font-semibold mb-1">Select Metadata File (Optional):</label>
                     <select id="metadata_file" name="metadata_file"
                         class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
                         <option value="">-- Select a metadata file --</option>
                         {% for file_info in user_files %}
-                        <option value="{{ file_info.filename }}">
-                            {{ file_info.original_filename | default(file_info.filename, true) }}
-                        </option>
+                            {% if not file_info.filename.endswith('.h5ad') %}
+                            <option value="{{ file_info.filename }}">
+                                {{ file_info.original_filename | default(file_info.filename, true) }}
+                            </option>
+                            {% endif %}
                         {% endfor %}
                     </select>
                 </div>
             </div>
         </div>
 
+        <!-- Data Filtering Section -->
+        <div class="mb-4 p-4 border border-gray-300 rounded-md">
+            <p class="font-bold text-gray-700 mb-3 text-md">Data Filtering</p>
+
+            <div class="mb-3 flex items-center">
+                <input type="checkbox" id="filter-cells" name="filter_cells" value="on" checked
+                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
+                <label for="filter-cells" class="text-sm text-gray-700 mr-2">Filter cells expressed in less
+                    than</label>
+                <input type="number" id="filter-cells-value" name="filter_cells_value" value="500" min="0"
+                    class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
+                <span class="text-sm text-gray-700 ml-2">genes</span>
+            </div>
+
+            <div class="mb-3 flex items-center">
+                <input type="checkbox" id="filter-genes" name="filter_genes" value="on" checked
+                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
+                <label for="filter-genes" class="text-sm text-gray-700 mr-2">Filter genes expressed in less
+                    than</label>
+                <input type="number" id="filter-genes-value" name="filter_genes_value" value="100" min="0"
+                    class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
+                <span class="text-sm text-gray-700 ml-2">cells</span>
+            </div>
+
+            <div class="mb-3 flex items-center">
+                <input type="checkbox" id="qc-filter" name="qc_filter" value="on" checked
+                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
+                <label for="qc-filter" class="text-sm text-gray-700 mr-2">Mitochondrial (MT) genes < </label>
+                        <input type="number" id="qc-filter-value" name="qc_filter_value" value="10" min="0"
+                            class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
+                        <span class="text-sm text-gray-700 ml-2">%</span>
+            </div>
+
+            <div class="mb-3 flex items-center">
+                <input type="checkbox" id="data-normalize" name="data_normalize" value="on" checked
+                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
+                <label for="data-normalize" class="text-sm text-gray-700 mr-2">Normalize total expression
+                    to</label>
+                <input type="number" id="data-normalize-value" name="data_normalize_value" value="10000" min="0"
+                    class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
+                <span class="text-sm text-gray-700 ml-2">per cell</span>
+            </div>
+
+            <div class="flex items-center">
+                <input type="checkbox" id="log-transform" name="log_transform" value="on" checked
+                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
+                <label for="log-transform" class="text-sm text-gray-700">Apply <span
+                        class="font-mono font-medium bg-gray-200 rounded-md p-1">log1p</span>
+                    transformation</label>
+            </div>
+        </div>
+
         <!-- 2D Layout Section -->
-        <div class="mb-6 p-4 border border-gray-300 rounded-md">
-            <h2 class="text-lg font-semibold text-gray-700 mb-3">2D Layout Data</h2>
-            <div class="mb-3">
+        <div class="mb-4 p-4 border border-gray-300 rounded-md">
+            <p class="font-bold text-gray-700 mb-3 text-md">2D Layout</p>
+            <div class="mb-3 flex items-center">
                 <input type="checkbox" id="have_2d_layout" name="have_2d_layout"
                     class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mr-2"
                     onchange="toggleLayoutSection()" />
-                <label for="have_2d_layout" class="text-gray-700 text-sm font-bold">I have a 2D layout file (e.g.,
-                    UMAP
-                    coordinates)</label>
+                <label for="have_2d_layout" class="text-gray-700 text-sm font-semibold">Have 2D Layout File? (e.g.,
+                    UMAP coordinates)</label>
             </div>
 
-            <div id="2d_layout_selection_section" class="space-y-2 mb-3" style="display: none">
-                <label class="block text-gray-700 text-sm font-bold mb-1">Select 2D Layout File:</label>
+            <div id="2d_layout_selection_section" class="space-y-2" style="display: none">
+                <label class="block text-gray-700 text-sm font-semibold mb-1">Select 2D Layout File:</label>
                 <select id="layout_file_2d" name="layout_file_2d"
                     class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
                     <option value="">-- Select a layout file --</option>
@@ -106,105 +164,48 @@
             </div>
 
             <div id="umap_parameters_section" class="space-y-3" style="display: block">
-                <p class="text-sm text-gray-700 mb-2">
+                <hr class="my-4 border-gray-300" />
+                <p class="text-sm text-gray-600 mb-2">
                     If not, UMAP parameters will be used (configure below):
                 </p>
-                <!-- UMAP parameters from user input -->
-                <div class="outline_div p-4 bg-gray-100 rounded-lg mb-4 border border-gray-200">
-                    <p class="font-semibold text-gray-700 mb-3 text-md">Data Filtering:</p>
 
-                    <div class="mb-3 flex items-center">
-                        <input type="checkbox" id="filter-cells" name="filter_cells" value="on" checked
-                            class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                        <label for="filter-cells" class="text-sm text-gray-700 mr-2">Filter cells expressed in less
-                            than</label>
-                        <input type="number" id="filter-cells-value" name="filter_cells_value" value="500" min="0"
-                            class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
-                        <span class="text-sm text-gray-700 ml-2">genes</span>
-                    </div>
-
-                    <div class="mb-3 flex items-center">
-                        <input type="checkbox" id="filter-genes" name="filter_genes" value="on" checked
-                            class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                        <label for="filter-genes" class="text-sm text-gray-700 mr-2">Filter genes expressed in less
-                            than</label>
-                        <input type="number" id="filter-genes-value" name="filter_genes_value" value="100" min="0"
-                            class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
-                        <span class="text-sm text-gray-700 ml-2">cells</span>
-                    </div>
-
-                    <div class="mb-3 flex items-center">
-                        <input type="checkbox" id="qc-filter" name="qc_filter" value="on" checked
-                            class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                        <label for="qc-filter" class="text-sm text-gray-700 mr-2">Mitochondrial (MT) genes < </label>
-                                <input type="number" id="qc-filter-value" name="qc_filter_value" value="10" min="0"
-                                    class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
-                                <span class="text-sm text-gray-700 ml-2">%</span>
-                    </div>
-
-                    <div class="mb-3 flex items-center">
-                        <input type="checkbox" id="data-normalize" name="data_normalize" value="on" checked
-                            class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                        <label for="data-normalize" class="text-sm text-gray-700 mr-2">Normalize total expression
-                            to</label>
-                        <input type="number" id="data-normalize-value" name="data_normalize_value" value="10000" min="0"
-                            class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
-                        <span class="text-sm text-gray-700 ml-2">per cell</span>
-                    </div>
-
-                    <div class="mb-3 flex items-center">
-                        <input type="checkbox" id="log-transform" name="log_transform" value="on" checked
-                            class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                        <label for="log-transform" class="text-sm text-gray-700">Apply <span
-                                class="font-mono font-semibold bg-gray-200 rounded-md p-1">log1p</span>
-                            transformation</label>
-                    </div>
+                <div class="">
+                    <label for="pca_components" class="block text-sm text-gray-700 font-semibold mb-1">Number of
+                        Principal Components:</label>
+                    <input type="number" name="pca_components" id="pca_components" value="20" min="2"
+                        class="w-full p-2 border border-gray-300 rounded-md text-sm" />
                 </div>
 
-                <div class="outline_div p-4 bg-gray-100 rounded-lg mb-4 border border-gray-200">
-                    <p class="font-semibold text-gray-700 mb-3 text-md">Dimension Reduction (PCA):</p>
-                    <div class="mb-3">
-                        <label for="pca_components" class="block text-sm text-gray-700 font-medium mb-1">Number of
-                            Principal Components:</label>
-                        <input type="number" name="pca_components" id="pca_components" value="20" min="2"
-                            class="w-full p-2 border border-gray-300 rounded-md text-sm" />
-                    </div>
+                <div class="mb-3">
+                    <label for="n_neighbors" class="block text-sm text-gray-700 font-semibold mb-1">Number of
+                        Neighbors (n_neighbors):</label>
+                    <input type="number" name="n_neighbors" id="n_neighbors" value="15" min="1"
+                        class="w-full p-2 border border-gray-300 rounded-md text-sm" />
                 </div>
 
-                <div class="outline_div p-4 bg-gray-100 rounded-lg mb-4 border border-gray-200">
-                    <p class="font-semibold text-gray-700 mb-3 text-md">2D Projection (UMAP):</p>
-                    <div class="mb-3">
-                        <label for="n_neighbors" class="block text-sm text-gray-700 font-medium mb-1">Number of
-                            Neighbors (n_neighbors):</label>
-                        <input type="number" name="n_neighbors" id="n_neighbors" value="15" min="1"
-                            class="w-full p-2 border border-gray-300 rounded-md text-sm" />
-                    </div>
+                <div class="mb-3">
+                    <label for="min_dist" class="block text-sm text-gray-700 font-semibold mb-1">Minimum Distance
+                        (min_dist):</label>
+                    <input type="number" step="0.01" name="min_dist" id="min_dist" value="0.1" min="0"
+                        class="w-full p-2 border border-gray-300 rounded-md text-sm" />
+                </div>
 
-                    <div class="mb-3">
-                        <label for="min_dist" class="block text-sm text-gray-700 font-medium mb-1">Minimum Distance
-                            (min_dist):</label>
-                        <input type="number" step="0.01" name="min_dist" id="min_dist" value="0.1" min="0"
-                            class="w-full p-2 border border-gray-300 rounded-md text-sm" />
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="metric" class="block text-sm text-gray-700 font-medium mb-1">Distance
-                            Metric:</label>
-                        <select name="metric" id="metric"
-                            class="w-full p-2 border border-gray-300 rounded-md bg-white text-sm">
-                            <option value="cosine">cosine</option>
-                            <option value="euclidean" selected>euclidean</option>
-                            {# Add other common metrics if desired: minkowski, manhattan, chebyshev, etc. #}
-                        </select>
-                    </div>
+                <div class="">
+                    <label for="metric" class="block text-sm text-gray-700 font-semibold mb-1">Distance
+                        Metric:</label>
+                    <select name="metric" id="metric"
+                        class="w-full p-2 border border-gray-300 rounded-md bg-white text-sm">
+                        <option value="cosine">cosine</option>
+                        <option value="euclidean" selected>euclidean</option>
+                    </select>
                 </div>
             </div>
         </div>
 
         <!-- Benjamini-Hochberg Alpha Section -->
         <div class="mb-6 p-4 border border-gray-300 rounded-md">
-            <div class="mb-3">
-                <label for="fdr_level" class="block text-sm text-gray-700 font-medium mb-1">
+            <div class="">
+                <label for="fdr_level" class="block text-sm text-gray-700 font-semibold mb-1">
                     Desired False Discovery Rate Level (α) for Benjamini-Hochberg Correction
                 </label>
                 <input
@@ -224,15 +225,16 @@
             </div>
         </div>
 
-
+        <!-- Submit Button -->
         <div class="flex items-center justify-start mt-6">
             <input type="submit" value="Start Analysis"
-                class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline cursor-pointer"
+                class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline cursor-pointer"
                 {% if not user_files %}disabled title="Upload files before creating an analysis" {% endif %} />
 
             <a href="{{ url_for('main_routes.index') }}"
-                class="ml-4 text-gray-600 hover:text-gray-800 text-sm">Cancel</a>
+            class="ml-4 text-blue-600 border border-blue-600 hover:bg-blue-600 hover:text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline text-sm">Cancel</a>
         </div>
+
     </form>
 </div>
 
