@@ -156,9 +156,11 @@
                     class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
                     <option value="">-- Select a layout file --</option>
                     {% for file_info in user_files %}
-                    <option value="{{ file_info.filename }}">
-                        {{ file_info.original_filename | default(file_info.filename, true) }}
-                    </option>
+                        {% if not file_info.filename.endswith('.h5ad') %}
+                            <option value="{{ file_info.filename }}">
+                                {{ file_info.original_filename | default(file_info.filename, true) }}
+                            </option>
+                        {% endif %}
                     {% endfor %}
                 </select>
             </div>
