@@ -234,7 +234,7 @@ def run_tf_analysis(
             if not expected_cols.issubset(priors.columns):
                 raise ValueError(f"Prior file must contain columns {expected_cols}")
 
-            # 2. Run Analysis
+            # Run Analysis
             current_app.logger.info(f"[TF_ANALYSIS] Starting TF analysis for user '{user_id}', analysis '{analysis_id}'.")
             # Pre-define columns for the p_values_df DataFrame
             all_regulators = priors["Regulator"].unique()
@@ -284,7 +284,7 @@ def run_tf_analysis(
                                 p_values_df.at[cell_name, regulator] = p_value
                                 activation_df.at[cell_name, regulator] = direction
 
-            # ───── Save pvalue and activation results ─────────────────────────────────────
+            # ───── Save p_value and activation results ─────────────────────────────────────
             result_path = analysis_data.get("results_path", None)
 
             p_values_path = os.path.join(result_path, "p_values.csv")
@@ -294,7 +294,7 @@ def run_tf_analysis(
             print(f"Saving activation results to {activation_path}...")
             activation_df.to_csv(activation_path, index=True)
 
-            # ───── Run Benjamini Hotchberg FDR Correction ────────────────────────────────
+            # ───── Run Benjamini Hochberg FDR Correction ────────────────────────────────
             update_analysis_status_fn(
                 user_id=user_id,
                 analysis_id=analysis_id,
@@ -337,9 +337,7 @@ def run_tf_analysis(
             memory_thread.join(timeout=1)
 
         # ───── Final logging and status update ─────────────────────────────────────
-        current_app.logger.info(
-            f"[TF_ANALYSIS] TF analysis completed for user '{user_id}', analysis '{analysis_id}'."
-        )
+        current_app.logger.info(f"[TF_ANALYSIS] TF analysis completed for user '{user_id}', analysis '{analysis_id}'")
 
     except MemoryError as e:
         current_app.logger.error(f"[TF_ANALYSIS] Memory error: {e}")

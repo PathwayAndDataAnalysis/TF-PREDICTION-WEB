@@ -1,27 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-
 from flask import current_app
 from app import get_all_users_data, save_all_users_data
 
 executor = ThreadPoolExecutor(max_workers=4)  # Adjust as needed
-
-
-# def run_in_background(fn, *args, **kwargs):
-#     app = current_app._get_current_object()  # Get the actual Flask app object
-#
-#     def wrapped(*args, **kwargs):
-#         with app.app_context():
-#             return fn(*args, **kwargs)
-#
-#     current_app.logger.info(
-#         f"[UTILS] Submitting background job: {fn.__name__} with args={args} kwargs={kwargs}"
-#     )
-#     future = executor.submit(wrapped, *args, **kwargs)
-#     current_app.logger.info(
-#         f"[UTILS] Background job {fn.__name__} submitted. Future: {future}"
-#     )
-#     return future
 
 
 def run_in_background(fn, *args, **kwargs):

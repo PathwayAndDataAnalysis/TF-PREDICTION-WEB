@@ -336,7 +336,7 @@ def create_analysis():
         current_app.logger.info(f"Create analysis form data: {request.form}")
 
         # Validate analysis name
-        analysis_name = request.form.get("analysis_name", "").strip()
+        analysis_name = request.form.get("analysis_name").strip()
         if not analysis_name:
             flash("Analysis name is required.", "error")
             return redirect(url_for("main_routes.create_analysis_page"))
@@ -357,54 +357,47 @@ def create_analysis():
         have_h5ad = request.form.get("have_h5ad") == "on"
         selected_h5ad_file = request.form.get("selected_h5ad_file")
         gene_exp_file = request.form.get("gene_exp_file")
-        metadata_file = request.form.get("metadata_file", None)
-        species = request.form.get("species")
+        metadata_file = request.form.get("metadata_file")
+        species = request.form.get("species") if request.form.get("species") else "auto"
 
         # 2D Layout Data
         have_2d_layout = request.form.get("have_2d_layout") == "on"
         layout_file_2d = request.form.get("layout_file_2d")
 
+        # Data Filtering Parameters
+        data_filtering = {}
+        if request.form.get("filter_cells") == "on":
+            data_filtering["filter_cells"] = True
+            data_filtering["filter_cells_value"] = request.form.get(
+                "filter_cells_value", default=500, type=int
+            )
+        if request.form.get("filter_genes") == "on":
+            data_filtering["filter_genes"] = True
+            data_filtering["filter_genes_value"] = request.form.get(
+                "filter_genes_value", default=100, type=int
+            )
+        if request.form.get("qc_filter") == "on":
+            data_filtering["qc_filter"] = True
+            data_filtering["qc_filter_value"] = request.form.get(
+                "qc_filter_value", default=10, type=int
+            )
+        if request.form.get("data_normalize") == "on":
+            data_filtering["data_normalize"] = True
+            data_filtering["data_normalize_value"] = request.form.get(
+                "data_normalize_value", default=10000, type=int
+            )
+        if request.form.get("log_transform") == "on":
+            data_filtering["log_transform"] = True
+
         # UMAP Parameters (only relevant if not have_2d_layout)
         umap_parameters = None
         if not have_2d_layout:
-            try:
-                umap_parameters = {
-                    "filter_cells": request.form.get("filter_cells") == "on",
-                    "filter_cells_value": request.form.get(
-                        "filter_cells_value", default=500, type=int
-                    ),
-                    "filter_genes": request.form.get("filter_genes") == "on",
-                    "filter_genes_value": request.form.get(
-                        "filter_genes_value", default=100, type=int
-                    ),
-                    "qc_filter": request.form.get("qc_filter") == "on",
-                    "qc_filter_value": request.form.get(
-                        "qc_filter_value", default=10, type=int
-                    ),
-                    "data_normalize": request.form.get("data_normalize") == "on",
-                    "data_normalize_value": request.form.get(
-                        "data_normalize_value", default=10000, type=int
-                    ),
-                    "log_transform": request.form.get("log_transform") == "on",
-                    "pca_components": request.form.get(
-                        "pca_components", default=20, type=int
-                    ),
-                    "n_neighbors": request.form.get("n_neighbors", default=15, type=int),
-                    "min_dist": request.form.get("min_dist", default=0.1, type=float),
-                    "metric": request.form.get("metric", default="euclidean"),
-                }
-            except ValueError as e:
-                current_app.logger.error(f"Error parsing UMAP parameters: {e}")
-                flash(
-                    "Invalid UMAP parameter value provided. Please check numeric inputs.",
-                    "error",
-                )
-                return redirect(url_for("main_routes.create_analysis_page"))
-
-        # --- Validation ---
-        if not analysis_name:
-            flash("Analysis name is required.", "error")
-            return redirect(url_for("main_routes.create_analysis_page"))
+            umap_parameters = {
+                "pca_components": request.form.get("pca_components", default=20, type=int),
+                "n_neighbors": request.form.get("n_neighbors", default=15, type=int),
+                "min_dist": request.form.get("min_dist", default=0.1, type=float),
+                "metric": request.form.get("metric", default="euclidean"),
+            }
 
         # Gene Expression File Validation
         if have_h5ad:
@@ -418,41 +411,32 @@ def create_analysis():
 
         # Validate gene expression metadata file if provided
         metadata_cols = []
-        if metadata_file and gene_exp_file:
-            user_files = all_users_data.get(current_user.id, {}).get("files", [])
-
-            user_filenames = {f["filename"] for f in user_files}
-            if metadata_file not in user_filenames:
-                flash("Metadata file not found in your files.", "error")
-                return redirect(url_for("main_routes.create_analysis_page"))
-            if gene_exp_file not in user_filenames:
-                flash("Gene expression file not found in your files.", "error")
-                return redirect(url_for("main_routes.create_analysis_page"))
-
-            # If both are tabular, check index match
-            if metadata_file.endswith((".csv", ".tsv")) and gene_exp_file.endswith(
-                (".csv", ".tsv")
-            ):
-                gene_exp = pd.read_csv(
-                    get_file_path(gene_exp_file, current_user.id), index_col=0
-                )
-                metadata = pd.read_csv(
-                    get_file_path(metadata_file, current_user.id), index_col=0
-                )
-                if not gene_exp.index.equals(metadata.index):
-                    flash(
-                        "Gene expression and metadata files do not match in cell indices.",
-                        "error",
-                    )
-                    return redirect(url_for("main_routes.create_analysis_page"))
-                metadata_cols = metadata.columns.tolist()  # Store metadata columns
+        # TODO: Reading gene expression and metadata files takes time, consider async processing
+        # if metadata_file and gene_exp_file:
+        #     user_files = all_users_data.get(current_user.id, {}).get("files", [])
+        #
+        #     user_filenames = {f["filename"] for f in user_files}
+        #     if metadata_file not in user_filenames:
+        #         flash("Metadata file not found in your files.", "error")
+        #         return redirect(url_for("main_routes.create_analysis_page"))
+        #     if gene_exp_file not in user_filenames:
+        #         flash("Gene expression file not found in your files.", "error")
+        #         return redirect(url_for("main_routes.create_analysis_page"))
+        #
+        #     # If both are tabular, check index match
+        #     if metadata_file.endswith((".csv", ".tsv")) and gene_exp_file.endswith((".csv", ".tsv")):
+        #         # gene_exp = pd.read_csv(get_file_path(gene_exp_file, current_user.id), index_col=0)
+        #         metadata = pd.read_csv(get_file_path(metadata_file, current_user.id), index_col=0)
+        #         # if not gene_exp.index.equals(metadata.index):
+        #         #     flash("Gene expression and metadata files do not match in cell indices.","error")
+        #         #     return redirect(url_for("main_routes.create_analysis_page"))
+        #         metadata_cols = metadata.columns.tolist()  # Store metadata columns
 
         # 2D Layout File Validation
         if have_2d_layout:
             if not layout_file_2d:
                 flash("Please select a 2D layout file.", "error")
                 return redirect(url_for("main_routes.create_analysis_page"))
-        # else: # User wants to generate UMAP, TODO: Validate UMAP parameters
 
         # Desired FDR Level (alpha) for Benjamini-Hochberg correction
         fdr_level = request.form.get("fdr_level", default=0.05, type=float)
@@ -480,7 +464,7 @@ def create_analysis():
             "inputs": {
                 "gene_expression": {
                     "source": "h5ad" if have_h5ad else "SEPARATE_FILES",
-                    **({"species": species} if not have_h5ad else {}),
+                    "species": species,
                     **(
                         {
                             "h5ad_filepath": get_file_path(
@@ -501,6 +485,7 @@ def create_analysis():
                         else {}
                     ),
                 },
+                "data_filtering": data_filtering,
                 "layout": {
                     "source": "FILE" if have_2d_layout else "UMAP_GENERATED",
                     **(
@@ -523,15 +508,16 @@ def create_analysis():
         save_all_users_data(all_users_data)
 
         # 1. Run UMAP Pipeline in the background to generate 2D layout
-        if not have_2d_layout:
-            run_in_background(
-                run_umap_pipeline,
-                current_user.id,
-                analysis_id,
-                new_analysis,
-                update_status_fn=update_analysis_status,
-                run_analysis_fn=run_tf_analysis
-            )
+        # if not have_2d_layout:
+        run_in_background(
+            run_umap_pipeline,
+            current_user.id,
+            analysis_id,
+            new_analysis,
+            have_2d_layout,
+            update_status_fn=update_analysis_status,
+            run_analysis_fn=run_tf_analysis
+        )
 
         flash(f'Analysis "{analysis_name}" created successfully and is pending.', "success")
         return redirect(url_for("main_routes.index"))
