@@ -60,6 +60,32 @@ def run_umap_pipeline(
         if gene_expr["source"] == "h5ad":
             current_app.logger.info(f"[UMAP] Loading .h5ad file: {gene_expr['h5ad_filepath']}")
             adata = sc.read_h5ad(gene_expr["h5ad_filepath"])
+
+            # Check if adata.var.index is ensemble IDs (if more than 50% of the index starts with "ENSG")
+            if adata.var.index.str.startswith("ENSG").mean() > 0.5:
+                current_app.logger.info("[UMAP] Detected Ensembl IDs in var index. Converting to gene symbols.")
+                common_names = ['gene_symbols', 'symbol', 'gene_name', 'symbols']
+                for g_name in common_names:
+                    if g_name in adata.var.columns:
+                        current_app.logger.info(f"[UMAP] Found gene symbols in column '{g_name}'. Converting var index.")
+                        adata.var_names = adata.var[g_name]
+                        adata.var_names_make_unique()
+                        current_app.logger.info(f"[UMAP] Converted var index to gene symbols using column '{g_name}'.")
+                        break
+                # Not found
+                if "feature_name" in adata.var.columns:
+                    current_app.logger.warning(
+                        "[UMAP] No gene symbols found in var columns. Using 'feature_name' as fallback."
+                    )
+                    try:
+                        adata.var["gene_symbols"] = adata.var["feature_name"].str.split("_").str[0]
+                        adata.var_names = adata.var["gene_symbols"]
+                        adata.var_names_make_unique()
+                    except Exception as e:
+                        current_app.logger.error(
+                            f"[UMAP] Failed to extract gene symbols from 'feature_name': {e}. Using original var index."
+                        )
+
             # Save metadata obs_keys in analysis
             metadata_cols = adata.obs_keys()[1:] if adata.obs_keys() else []
             current_app.logger.info(f"[UMAP] Metadata columns found in .h5ad file: {metadata_cols}")
