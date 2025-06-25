@@ -73,18 +73,36 @@ def run_umap_pipeline(
                         current_app.logger.info(f"[UMAP] Converted var index to gene symbols using column '{g_name}'.")
                         break
                 # Not found
-                if "feature_name" in adata.var.columns:
-                    current_app.logger.warning(
-                        "[UMAP] No gene symbols found in var columns. Using 'feature_name' as fallback."
+                ensembl_map_file = ""
+                if gene_expr.get("species") == "human":
+                    ensembl_map_file = "human_gencode_mapping.csv"
+                elif gene_expr.get("species") == "mouse":
+                    ensembl_map_file = "mouse_gencode_mapping.csv"
+                else:
+                    ensembl_map_file = ""
+                if ensembl_map_file:
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    gene_ensembl_map_df = pd.read_csv(os.path.join(script_dir, "..", "prior_data", ensembl_map_file))
+
+                    # gene_ensembl_map_df is dataframe with columns: "ensembl_id", "gene_symbol". Now we can map the Ensembl IDs to gene symbols
+                    adata.var["gene_symbols"] = adata.var.index.map(
+                        gene_ensembl_map_df.set_index("ensembl_id")["gene_symbol"]
                     )
-                    try:
-                        adata.var["gene_symbols"] = adata.var["feature_name"].str.split("_").str[0]
-                        adata.var_names = adata.var["gene_symbols"]
-                        adata.var_names_make_unique()
-                    except Exception as e:
-                        current_app.logger.error(
-                            f"[UMAP] Failed to extract gene symbols from 'feature_name': {e}. Using original var index."
-                        )
+                    adata.var_names = adata.var["gene_symbols"]
+                    adata.var_names_make_unique()
+
+                # if "feature_name" in adata.var.columns:
+                #     current_app.logger.warning(
+                #         "[UMAP] No gene symbols found in var columns. Using 'feature_name' as fallback."
+                #     )
+                #     try:
+                #         adata.var["gene_symbols"] = adata.var["feature_name"].str.split("_").str[0]
+                #         adata.var_names = adata.var["gene_symbols"]
+                #         adata.var_names_make_unique()
+                #     except Exception as e:
+                #         current_app.logger.error(
+                #             f"[UMAP] Failed to extract gene symbols from 'feature_name': {e}. Using original var index."
+                #         )
 
             # Save metadata obs_keys in analysis
             metadata_cols = adata.obs_keys()[1:] if adata.obs_keys() else []

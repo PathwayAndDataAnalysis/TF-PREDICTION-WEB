@@ -24,6 +24,14 @@
                 <p class="text-xs text-gray-500 mt-1">Allowed types: .h5ad, .txt, .csv, .tsv, etc.</p>
             </div>
 
+            <div id="gene-exp-checkbox-container" class="mb-4 hidden">
+                <label for="is_gene_expression" class="flex items-center text-sm">
+                    <input type="checkbox" id="is_gene_expression" name="is_gene_expression" value="on"
+                           class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mr-2">
+                    <span>This file contains a gene expression matrix (cells x genes).</span>
+                </label>
+            </div>
+
             <div class="mb-4">
                 <label for="description" class="block text-gray-700 text-sm font-bold mb-2">Description
                     (optional):</label>

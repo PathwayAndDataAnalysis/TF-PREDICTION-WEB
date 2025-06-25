@@ -31,7 +31,7 @@ from . import (
 )
 from .tf_analysis import run_tf_analysis, bh_fdr_correction
 from .umap_pipeline import run_umap_pipeline
-from .utils import run_in_background, update_analysis_status, infer_delimiter
+from .utils import run_in_background, update_analysis_status, infer_delimiter, calculate_and_save_qc_metrics
 
 # Create Blueprints
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -161,6 +161,7 @@ def upload_data():
 
         file = request.files["data_file"]
         description = request.form.get("description", "").strip()
+        is_gene_expression = request.form.get("is_gene_expression") == "on"
 
         if file.filename == "":
             flash("No file selected for upload.", "error")
@@ -179,6 +180,15 @@ def upload_data():
             original_filename = file.filename
             filename = secure_filename(original_filename)
 
+            # --- Decide if QC should be run ---
+            should_run_qc = False
+            filename_lower = filename.lower()
+            if filename_lower.endswith('.h5ad'):
+                should_run_qc = True
+            elif (filename_lower.endswith('.csv') or filename_lower.endswith('.tsv')) and is_gene_expression:
+                should_run_qc = True
+            # ----------------------------------
+
             user_data_storage_path = get_user_specific_data_path(current_user.id)
             if not user_data_storage_path:
                 flash("Could not access user storage directory.", "error")
@@ -186,7 +196,7 @@ def upload_data():
 
             destination_file_path = os.path.join(user_data_storage_path, filename)
 
-            # Check if file already exists
+            # if a file already exists
             all_users_data = get_all_users_data()
             if current_user.id not in all_users_data:
                 all_users_data[current_user.id] = {"password": "HASH_PLACEHOLDER", "files": []}
@@ -216,16 +226,29 @@ def upload_data():
                     "description": description,
                     "path": destination_file_path,  # Store the full path for easier deletion
                     "size": file_size,
-                    "uploaded_at": datetime.now().isoformat()
+                    "uploaded_at": datetime.now().isoformat(),
+                    **({"qc_status": "processing"} if should_run_qc else {})
                 })
 
                 all_users_data[current_user.id]["files"] = user_files_list
                 save_all_users_data(all_users_data)
 
-                flash(f'File "{original_filename}" uploaded successfully as "{filename}"!',"success")
+                if should_run_qc:
+                    # --- TRIGGER BACKGROUND QC CALCULATION ---
+                    # Run the QC calculation in a separate thread
+                    run_in_background(calculate_and_save_qc_metrics, current_user.id, filename, destination_file_path)
+                    flash(
+                        f'File "{original_filename}" uploaded successfully! QC analysis is running in the background.',
+                        "success"
+                    )
+                else:
+                    flash(
+                        f'File "{original_filename}" uploaded successfully!',
+                        "success",
+                    )
             except Exception as e:
                 current_app.logger.error(f"Error saving file {filename} for user {current_user.id}: {e}")
-                # Clean up partial file
+                # Cleanup partial file
                 if os.path.exists(destination_file_path):
                     try:
                         os.remove(destination_file_path)
@@ -1150,6 +1173,7 @@ def get_gene_expression_color_by(analysis_id):
         )
         return jsonify({"error": "Internal server error."}), 500
 
+
 @main_bp.route("/analysis/re-run-fdr-correction/<analysis_id>", methods=["POST"])
 @login_required
 def re_run_fdr_correction(analysis_id):
@@ -1236,7 +1260,6 @@ def re_run_fdr_correction(analysis_id):
             exc_info=True,
         )
         return jsonify({"error": "Internal server error."}), 500
-
 
 
 @main_bp.route("/analysis/delete/<analysis_id>", methods=["POST"])

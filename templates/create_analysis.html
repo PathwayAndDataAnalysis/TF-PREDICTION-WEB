@@ -22,25 +22,23 @@
             </div>
 
             <div id="h5ad_selection_section" class="space-y-2" style="display: none">
-                <label class="block text-gray-700 text-sm font-semibold mb-1">Select .h5ad File:</label>
+                <label for="selected_h5ad_file" class="block text-gray-700 text-sm font-semibold mb-1">Select .h5ad File:</label>
                 {% if user_files %}
-                <div class="space-y-1 max-h-40 overflow-y-auto border border-gray-200 rounded-md p-2 bg-gray-50">
-                    {% for file_info in user_files %}
-                        {% if file_info.filename.endswith('.h5ad') %}
-                        <div class="flex items-center">
-                            <input type="radio" id="h5ad_file_{{ loop.index }}" name="selected_h5ad_file"
-                                value="{{ file_info.filename }}"
-                                class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500 mr-2" />
-                            <label for="h5ad_file_{{ loop.index }}" class="text-sm text-gray-700">{{
-                                file_info.original_filename | default(file_info.filename, true) }}</label>
-                        </div>
-                        {% endif %}
-                    {% endfor %}
-                </div>
+                    <select id="selected_h5ad_file" name="selected_h5ad_file"
+                        class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
+                        <option value="select-h5ad-file">-- Select a .h5ad file --</option>
+                        {% for file_info in user_files %}
+                            {% if file_info.filename.endswith('.h5ad') %}
+                            <option value="{{ file_info.filename }}">
+                                {{ file_info.original_filename | default(file_info.filename, true) }}
+                            </option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
                 {% else %}
-                <p class="text-sm text-gray-600">
-                    No .h5ad files found. Upload one or provide separate count/metadata files.
-                </p>
+                    <p class="text-sm text-gray-600">
+                        No .h5ad files found. Upload one or provide separate count/metadata files.
+                    </p>
                 {% endif %}
             </div>
 
@@ -51,7 +49,7 @@
                     <label for="gene_exp_file" class="block text-gray-700 text-sm font-semibold mb-1">Select Gene Expression File:</label>
                     <select id="gene_exp_file" name="gene_exp_file"
                         class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
-                        <option value="">-- Select a gene expression file --</option>
+                        <option value="select-gene-exp-file">-- Select a gene expression file --</option>
                         {% for file_info in user_files %}
                             {% if not file_info.filename.endswith('.h5ad') %}
                             <option value="{{ file_info.filename }}">
@@ -65,7 +63,7 @@
                     <label for="species" class="block text-gray-700 text-sm font-semibold mb-1">Select Species:</label>
                     <select id="species" name="species"
                         class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
-                        <option value="">-- Select a species --</option>
+                        <option value="select-species">-- Select a species --</option>
                         <option value="human">Human</option>
                         <option value="mouse">Mouse</option>
                     </select>
@@ -74,7 +72,7 @@
                     <label for="metadata_file" class="block text-gray-700 text-sm font-semibold mb-1">Select Metadata File (Optional):</label>
                     <select id="metadata_file" name="metadata_file"
                         class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
-                        <option value="">-- Select a metadata file --</option>
+                        <option value="select-metadata-file">-- Select a metadata file --</option>
                         {% for file_info in user_files %}
                             {% if not file_info.filename.endswith('.h5ad') %}
                             <option value="{{ file_info.filename }}">
@@ -83,6 +81,28 @@
                             {% endif %}
                         {% endfor %}
                     </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- QC Plots Section -->
+        <div id="qc-plots-container" class="mt-4 mb-6 p-4 border border-gray-200 rounded-md bg-gray-50 hidden">
+            <h3 class="text-md font-semibold text-gray-700 mb-3">Quality Control Plots for Selected File</h3>
+            <div class="grid md:grid-cols-1 gap-4">
+{#                <div id="qc-plot-genes-per-cell" class="h-64"></div>#}
+{#                <div id="qc-plot-cells-per-gene" class="h-64"></div>#}
+{#                <div id="qc-plot-mt-percent" class="h-64"></div>#}
+                <div>
+                    <div id="qc-plot-genes-per-cell" class="h-64"></div>
+                    <div id="qc-plot-genes-per-cell-stats"></div>
+                </div>
+                <div>
+                    <div id="qc-plot-cells-per-gene" class="h-64"></div>
+                    <div id="qc-plot-cells-per-gene-stats"></div>
+                </div>
+                <div>
+                    <div id="qc-plot-mt-percent" class="h-64"></div>
+                    <div id="qc-plot-mt-percent-stats"></div>
                 </div>
             </div>
         </div>
@@ -239,6 +259,10 @@
 
     </form>
 </div>
+
+<script>
+    window.user_files = {{ user_files | tojson }};
+</script>
 
 <script src="{{ url_for('static', filename='js/common.js') }}"></script>
 <script src="{{ url_for('static', filename='js/create_analysis.js') }}"></script>
