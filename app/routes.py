@@ -381,7 +381,7 @@ def create_analysis():
         selected_h5ad_file = request.form.get("selected_h5ad_file")
         gene_exp_file = request.form.get("gene_exp_file")
         metadata_file = request.form.get("metadata_file")
-        species = request.form.get("species") if request.form.get("species") else "auto"
+        species = request.form.get("species") if request.form.get("species") and request.form.get("species") != "select-species" else "auto"
 
         # 2D Layout Data
         have_2d_layout = request.form.get("have_2d_layout") == "on"
@@ -391,16 +391,16 @@ def create_analysis():
         data_filtering = {}
         if request.form.get("filter_cells") == "on":
             data_filtering["filter_cells"] = True
-            data_filtering["min_genes"] = request.form.get("min_genes")
+            data_filtering["min_genes"] = request.form.get("min_genes", type=int)
         if request.form.get("filter_genes") == "on":
             data_filtering["filter_genes"] = True
-            data_filtering["min_cells"] = request.form.get("min_cells")
+            data_filtering["min_cells"] = request.form.get("min_cells", type=int)
         if request.form.get("qc_filter") == "on":
             data_filtering["qc_filter"] = True
-            data_filtering["max_mt_pct"] = request.form.get("max_mt_pct")
+            data_filtering["max_mt_pct"] = request.form.get("max_mt_pct", type=int)
         if request.form.get("data_normalize") == "on":
             data_filtering["data_normalize"] = True
-            data_filtering["data_normalize_value"] = request.form.get("data_normalize_value")
+            data_filtering["data_normalize_value"] = request.form.get("data_normalize_value", type=int)
         if request.form.get("log_transform") == "on":
             data_filtering["log_transform"] = True
 

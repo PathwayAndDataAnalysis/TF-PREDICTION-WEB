@@ -149,8 +149,8 @@ def run_umap_pipeline(
 
         # 2. Filter genes
         if data_filtering.get("filter_genes"):
-            current_app.logger.info(f"[UMAP] Filtering genes with min_cells={data_filtering.get('filter_genes_value', 0)}")
-            sc.pp.filter_genes(adata, min_cells=data_filtering.get("filter_genes_value", 0))
+            current_app.logger.info(f"[UMAP] Filtering genes with min_cells={data_filtering.get('min_cells', 0)}")
+            sc.pp.filter_genes(adata, min_cells=data_filtering.get("min_cells", 0))
             current_app.logger.info(f"Shape after filtering genes: {adata.n_obs} cells × {adata.n_vars} genes")
             if adata.n_vars == 0:
                 update_status_fn(user_id, analysis_id, "No genes left after filtering. Please check your filter settings.",)
