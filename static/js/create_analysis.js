@@ -79,6 +79,23 @@ function renderHistogram(divElement, data, title, xtitle, ytitle) {
 	});
 }
 
+function addInputValidation(inputId, min, max=null) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.addEventListener("input", function () {
+        let value = parseInt(this.value, 10);
+
+        if (isNaN(value)) {
+            this.value = "";
+            return;
+        }
+        if (value < min) this.value = min;
+		if (max !== null && value > max) {
+			this.value = max;
+		}
+    });
+}
+
 document.addEventListener("DOMContentLoaded", function () {
 	toggleH5adSection();
 	toggleLayoutSection();
@@ -126,24 +143,51 @@ document.addEventListener("DOMContentLoaded", function () {
 					"Cell Count"
 				);
 
-				document.getElementById("qc-plot-genes-per-cell-stats").innerHTML = `<p class="text-sm mt-2">
-						<span class="font-semibold">Mean: </span>${file.qc_metrics.data_summary.mean_n_genes_by_counts}, 
-						<span class="font-semibold">Standard Deviation: </span>${file.qc_metrics.data_summary.sd_n_genes_by_counts}, 
-						<span class="font-semibold">Min. Value: </span>${file.qc_metrics.data_summary.min_n_genes_by_counts}, 
-						<span class="font-semibold">Max. Value: </span>${file.qc_metrics.data_summary.max_n_genes_by_counts}
-					</p>`;
-				document.getElementById("qc-plot-cells-per-gene-stats").innerHTML = `<p class="text-sm mt-2">
-						<span class="font-semibold">Mean: </span>${file.qc_metrics.data_summary.mean_n_cells_by_counts}, 
-						<span class="font-semibold">Standard Deviation: </span>${file.qc_metrics.data_summary.sd_n_cells_by_counts}, 
-						<span class="font-semibold">Min. Value: </span>${file.qc_metrics.data_summary.min_n_cells_by_counts}, 
-						<span class="font-semibold">Max. Value: </span>${file.qc_metrics.data_summary.max_n_cells_by_counts}
-					</p>`;
-				document.getElementById("qc-plot-mt-percent-stats").innerHTML = `<p class="text-sm mt-2">
-						<span class="font-semibold">Mean: </span>${file.qc_metrics.data_summary.mean_pct_counts_mt}, 
-						<span class="font-semibold">Standard Deviation: </span>${file.qc_metrics.data_summary.sd_pct_counts_mt}, 
-						<span class="font-semibold">Min. Value: </span>${file.qc_metrics.data_summary.min_pct_counts_mt}, 
-						<span class="font-semibold">Max. Value: </span>${file.qc_metrics.data_summary.max_pct_counts_mt}
-					</p>`;
+				document.getElementById("qc-plot-genes-per-cell-stats").innerHTML =
+					`<div class="flex justify-between w-full">
+						<p class="text-xs mt-2 font-mono text-gray-500">
+							<span class="font-semibold">Min. Value: </span>${file.qc_metrics.data_summary.min_n_genes_by_counts}
+						</p>
+						<p class="text-xs mt-2 font-mono text-gray-500">
+							<span class="font-semibold">Mean: </span>${file.qc_metrics.data_summary.mean_n_genes_by_counts}
+						</p>
+						<p class="text-xs mt-2 font-mono text-gray-500">
+							<span class="font-semibold">Standard Deviation: </span>${file.qc_metrics.data_summary.sd_n_genes_by_counts}
+						</p>
+						<p class="text-xs mt-2 font-mono text-gray-500">
+							<span class="font-semibold">Max. Value: </span>${file.qc_metrics.data_summary.max_n_genes_by_counts}
+						</p>
+					</div>`;
+				document.getElementById("qc-plot-cells-per-gene-stats").innerHTML =
+					`<div class="flex justify-between w-full">
+						<p class="text-xs mt-2 font-mono text-gray-500">
+							<span class="font-semibold">Min. Value: </span>${file.qc_metrics.data_summary.min_n_cells_by_counts}
+						</p>
+						<p class="text-xs mt-2 font-mono text-gray-500">
+							<span class="font-semibold">Mean: </span>${file.qc_metrics.data_summary.mean_n_cells_by_counts}
+						</p>
+						<p class="text-xs mt-2 font-mono text-gray-500">
+							<span class="font-semibold">Standard Deviation: </span>${file.qc_metrics.data_summary.sd_n_cells_by_counts}
+						</p>
+						<p class="text-xs mt-2 font-mono text-gray-500">
+							<span class="font-semibold">Max. Value: </span>${file.qc_metrics.data_summary.max_n_cells_by_counts}
+						</p>
+					</div>`;
+				document.getElementById("qc-plot-mt-percent-stats").innerHTML =
+					`<div class="flex justify-between w-full">
+						<p class="text-xs mt-2 font-mono text-gray-500">
+							<span class="font-semibold">Min. Value: </span>${file.qc_metrics.data_summary.min_pct_counts_mt}
+						</p>
+						<p class="text-xs mt-2 font-mono text-gray-500">
+							<span class="font-semibold">Mean: </span>${file.qc_metrics.data_summary.mean_pct_counts_mt}
+						</p>
+						<p class="text-xs mt-2 font-mono text-gray-500">
+							<span class="font-semibold">Standard Deviation: </span>${file.qc_metrics.data_summary.sd_pct_counts_mt}
+						</p>
+						<p class="text-xs mt-2 font-mono text-gray-500">
+							<span class="font-semibold">Max. Value: </span>${file.qc_metrics.data_summary.max_pct_counts_mt}
+						</p>
+					</div>`;
 				return;
 			}
 		}
@@ -157,4 +201,51 @@ document.addEventListener("DOMContentLoaded", function () {
 	h5adFileSelection.addEventListener("change", function () {
 		showQcPlotsForFile(h5adFileSelection.value);
 	});
+
+	// Validation for input fields
+	addInputValidation("min-genes", 0);
+	addInputValidation("min-cells", 0);
+	addInputValidation("data-nomralize-value", 0);
+	addInputValidation("max-mt-pct", 0, 100);
+	addInputValidation("pca_components", 2);
+	addInputValidation("n_neighbors", 2);
+	addInputValidation("min_dist", 0.0, 1.0);
+	addInputValidation("random-state", 0, 2147483647);
+
+
+	// Reusable tooltip logic for all info buttons
+    const infoButtons = document.querySelectorAll('.info-btn');
+    let openTooltip = null;
+
+    infoButtons.forEach(btn => {
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            // Hide any open tooltip
+            if (openTooltip) openTooltip.classList.add('hidden');
+            // Show the clicked tooltip
+            const tooltipId = btn.getAttribute('data-tooltip-id');
+            const tooltip = document.getElementById(tooltipId);
+            if (tooltip) {
+                tooltip.classList.toggle('hidden');
+                // Position tooltip below the button
+                const rect = btn.getBoundingClientRect();
+                tooltip.style.top = (rect.bottom + window.scrollY + 5) + "px";
+                tooltip.style.left = (rect.left + window.scrollX) + "px";
+                openTooltip = tooltip;
+            }
+        });
+    });
+
+    // Hide tooltip when clicking outside
+    document.addEventListener('click', function () {
+        if (openTooltip) openTooltip.classList.add('hidden');
+        openTooltip = null;
+    });
+
+    // Prevent closing when clicking inside tooltip
+    document.querySelectorAll('.z-10').forEach(tooltip => {
+        tooltip.addEventListener('click', function (e) {
+            e.stopPropagation();
+        });
+    });
 });

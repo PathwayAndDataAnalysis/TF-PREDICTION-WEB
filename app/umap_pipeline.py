@@ -140,17 +140,17 @@ def run_umap_pipeline(
         data_filtering = analysis_data["inputs"]["data_filtering"]
         # 1. Filter Cells
         if data_filtering.get("filter_cells"):
-            current_app.logger.info(f"[UMAP] Filtering cells with min_genes={data_filtering.get('filter_cells_value')}")
-            sc.pp.filter_cells(adata, min_genes=data_filtering.get("filter_cells_value"))
+            current_app.logger.info(f"[UMAP] Filtering cells with min_genes={data_filtering.get('min_genes', 0)}")
+            sc.pp.filter_cells(adata, min_genes=data_filtering.get("min_genes", 0))
             current_app.logger.info(f"Shape after filtering cells: {adata.n_obs} cells × {adata.n_vars} genes")
             if adata.n_obs == 0:
                 update_status_fn(user_id, analysis_id, "No cells left after filtering. Please check your filter settings.",)
                 raise ValueError("No cells left after filtering. Please check your filter settings.")
 
-        # 2. Filter genes expressed in less than `filter_genes_value` cells
+        # 2. Filter genes
         if data_filtering.get("filter_genes"):
-            current_app.logger.info(f"[UMAP] Filtering genes with min_cells={data_filtering.get('filter_genes_value')}")
-            sc.pp.filter_genes(adata, min_cells=data_filtering.get("filter_genes_value"))
+            current_app.logger.info(f"[UMAP] Filtering genes with min_cells={data_filtering.get('filter_genes_value', 0)}")
+            sc.pp.filter_genes(adata, min_cells=data_filtering.get("filter_genes_value", 0))
             current_app.logger.info(f"Shape after filtering genes: {adata.n_obs} cells × {adata.n_vars} genes")
             if adata.n_vars == 0:
                 update_status_fn(user_id, analysis_id, "No genes left after filtering. Please check your filter settings.",)
@@ -158,7 +158,7 @@ def run_umap_pipeline(
 
         # 3. Filter on mitochondrial gene percentage (with species handling)
         if data_filtering.get("qc_filter"):
-            current_app.logger.info(f"[UMAP] Filtering genes with min_counts={data_filtering.get('qc_filter_value')}")
+            current_app.logger.info(f"[UMAP] Filtering genes with min_counts={data_filtering.get('max_mt_pct', 100)}% mitochondrial counts")
             mito_prefix = None
             species = analysis_data["inputs"]["gene_expression"]["species"].lower()
 
@@ -188,7 +188,7 @@ def run_umap_pipeline(
 
                 if num_mt_genes_found > 0:
                     sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], percent_top=None, log1p=False, inplace=True)
-                    mito_threshold = float(data_filtering.get("qc_filter_value"))
+                    mito_threshold = float(data_filtering.get("max_mt_pct", 100)) # Default to 100% (no filtering) if not provided
                     adata = adata[adata.obs.pct_counts_mt < mito_threshold, :]
 
                     # catastrophic case where all cells are removed
@@ -223,10 +223,24 @@ def run_umap_pipeline(
             current_app.logger.info(
                 f"[UMAP] Computing neighbors with n_neighbors={params.get('n_neighbors')}, metric={params.get('metric', 'euclidean')}"
             )
-            sc.pp.neighbors(adata, n_neighbors=params.get("n_neighbors"), metric=params.get("metric", "euclidean"))
+            sc.pp.neighbors(
+                adata,
+                n_neighbors=params.get("n_neighbors"),
+                use_rep='X_pca',  # Use PCA results as input
+                metric=params.get("metric", "euclidean")
+            )
 
             current_app.logger.info(f"[UMAP] Running UMAP with min_dist={params.get('min_dist')}")
-            sc.tl.umap(adata, min_dist=params.get("min_dist"))
+            if params.get("random_state") is not None:
+                current_app.logger.info(f"[UMAP] Using random_state={params.get('random_state')} for reproducibility.")
+                sc.tl.umap(
+                    adata,
+                    min_dist=params.get("min_dist"),
+                    random_state=params.get("random_state"),
+                )
+            else:
+                current_app.logger.info("[UMAP] No random_state provided, using default.")
+                sc.tl.umap(adata, min_dist=params.get("min_dist"))
 
             # Save results
             result_path = analysis_data["results_path"]

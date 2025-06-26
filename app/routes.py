@@ -391,24 +391,16 @@ def create_analysis():
         data_filtering = {}
         if request.form.get("filter_cells") == "on":
             data_filtering["filter_cells"] = True
-            data_filtering["filter_cells_value"] = request.form.get(
-                "filter_cells_value", default=500, type=int
-            )
+            data_filtering["min_genes"] = request.form.get("min_genes")
         if request.form.get("filter_genes") == "on":
             data_filtering["filter_genes"] = True
-            data_filtering["filter_genes_value"] = request.form.get(
-                "filter_genes_value", default=100, type=int
-            )
+            data_filtering["min_cells"] = request.form.get("min_cells")
         if request.form.get("qc_filter") == "on":
             data_filtering["qc_filter"] = True
-            data_filtering["qc_filter_value"] = request.form.get(
-                "qc_filter_value", default=10, type=int
-            )
+            data_filtering["max_mt_pct"] = request.form.get("max_mt_pct")
         if request.form.get("data_normalize") == "on":
             data_filtering["data_normalize"] = True
-            data_filtering["data_normalize_value"] = request.form.get(
-                "data_normalize_value", default=10000, type=int
-            )
+            data_filtering["data_normalize_value"] = request.form.get("data_normalize_value")
         if request.form.get("log_transform") == "on":
             data_filtering["log_transform"] = True
 
@@ -418,8 +410,9 @@ def create_analysis():
             umap_parameters = {
                 "pca_components": request.form.get("pca_components", default=20, type=int),
                 "n_neighbors": request.form.get("n_neighbors", default=15, type=int),
-                "min_dist": request.form.get("min_dist", default=0.1, type=float),
+                "min_dist": request.form.get("min_dist", default=0.3, type=float),
                 "metric": request.form.get("metric", default="euclidean"),
+                "random_state": request.form.get("random_state", type=int, default=0)
             }
 
         # Gene Expression File Validation

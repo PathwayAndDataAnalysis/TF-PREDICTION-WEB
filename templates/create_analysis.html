@@ -1,5 +1,5 @@
 {% extends "base.html" %} {% block title %}Create New Analysis{% endblock %} {% block content %}
-<div class="mx-auto mt-2 bg-white p-8 rounded-lg shadow-lg">
+<div class="mx-auto mt-2 bg-white px-20 py-8 rounded-lg shadow-lg">
     <h1 class="text-xl font-bold text-center text-gray-700 mb-4">Create New Analysis</h1>
     <form method="POST" action="{{ url_for('main_routes.create_analysis') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}" />
@@ -12,7 +12,7 @@
         </div>
 
         <!-- Gene Expression Section -->
-        <div class="mb-4 p-4 border border-gray-300 rounded-md">
+        <div class="p-8 rounded-lg mb-4 border border-gray-200">
             <p class="font-bold text-gray-700 mb-3 text-md">Gene Expression Data</p>
             <div class="mb-3 flex items-center">
                 <input type="checkbox" id="have_h5ad" name="have_h5ad"
@@ -86,12 +86,9 @@
         </div>
 
         <!-- QC Plots Section -->
-        <div id="qc-plots-container" class="mt-4 mb-6 p-4 border border-gray-200 rounded-md bg-gray-50 hidden">
+        <div id="qc-plots-container" class="mt-4 mb-4 p-8 border border-gray-200 rounded-lg bg-gray-50 hidden">
             <h3 class="text-md font-semibold text-gray-700 mb-3">Quality Control Plots for Selected File</h3>
             <div class="grid md:grid-cols-1 gap-4">
-{#                <div id="qc-plot-genes-per-cell" class="h-64"></div>#}
-{#                <div id="qc-plot-cells-per-gene" class="h-64"></div>#}
-{#                <div id="qc-plot-mt-percent" class="h-64"></div>#}
                 <div>
                     <div id="qc-plot-genes-per-cell" class="h-64"></div>
                     <div id="qc-plot-genes-per-cell-stats"></div>
@@ -108,59 +105,113 @@
         </div>
 
         <!-- Data Filtering Section -->
-        <div class="mb-4 p-4 border border-gray-300 rounded-md">
-            <p class="font-bold text-gray-700 mb-3 text-md">Data Filtering</p>
+{#        <div class="mb-4 p-4 border border-gray-300 rounded-md">#}
+{#            <p class="font-bold text-gray-700 mb-3 text-md">Data Filtering</p>#}
+{##}
+{#            <div class="mb-3 flex items-center">#}
+{#                <input type="checkbox" id="filter-cells" name="filter_cells" value="on" checked#}
+{#                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />#}
+{#                <label for="filter-cells" class="text-sm text-gray-700 mr-2">Filter cells expressed in less#}
+{#                    than</label>#}
+{#                <input type="number" id="filter-cells-value" name="filter_cells_value" value="100" min="0"#}
+{#                    class="w-24 p-1 border border-gray-300 rounded-md text-sm" />#}
+{#                <span class="text-sm text-gray-700 ml-2">genes</span>#}
+{#            </div>#}
+{##}
+{#            <div class="mb-3 flex items-center">#}
+{#                <input type="checkbox" id="filter-genes" name="filter_genes" value="on" checked#}
+{#                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />#}
+{#                <label for="filter-genes" class="text-sm text-gray-700 mr-2">Filter genes expressed in less#}
+{#                    than</label>#}
+{#                <input type="number" id="filter-genes-value" name="filter_genes_value" value="10" min="0"#}
+{#                    class="w-24 p-1 border border-gray-300 rounded-md text-sm" />#}
+{#                <span class="text-sm text-gray-700 ml-2">cells</span>#}
+{#            </div>#}
+{##}
+{#            <div class="mb-3 flex items-center">#}
+{#                <input type="checkbox" id="qc-filter" name="qc_filter" value="on"#}
+{#                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />#}
+{#                <label for="qc-filter" class="text-sm text-gray-700 mr-2">Mitochondrial (MT) genes < </label>#}
+{#                        <input type="number" id="qc-filter-value" name="qc_filter_value" value="10" min="0"#}
+{#                            class="w-24 p-1 border border-gray-300 rounded-md text-sm" />#}
+{#                        <span class="text-sm text-gray-700 ml-2">%</span>#}
+{#            </div>#}
+{##}
+{#            <div class="mb-3 flex items-center">#}
+{#                <input type="checkbox" id="data-normalize" name="data_normalize" value="on" checked#}
+{#                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />#}
+{#                <label for="data-normalize" class="text-sm text-gray-700 mr-2">Normalize total expression#}
+{#                    to</label>#}
+{#                <input type="number" id="data-normalize-value" name="data_normalize_value" value="10000" min="0"#}
+{#                    class="w-24 p-1 border border-gray-300 rounded-md text-sm" />#}
+{#                <span class="text-sm text-gray-700 ml-2">per cell</span>#}
+{#            </div>#}
+{##}
+{#            <div class="flex items-center">#}
+{#                <input type="checkbox" id="log-transform" name="log_transform" value="on" checked#}
+{#                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />#}
+{#                <label for="log-transform" class="text-sm text-gray-700">Apply <span#}
+{#                        class="font-mono font-medium bg-gray-200 rounded-md p-1">log1p</span>#}
+{#                    transformation</label>#}
+{#            </div>#}
+{#        </div>#}
 
-            <div class="mb-3 flex items-center">
+        <div class="p-8 rounded-lg mb-4 border border-gray-200">
+            <p class="font-semibold text-gray-700 mb-3 text-md">Data Filtering:</p>
+            <p class="text-xs text-gray-500 mb-4">Check a box to apply the corresponding filter. The plots above can help you choose appropriate values. (Select a file to see plots)</p>
+
+            <!-- Keep Cells by Gene Count -->
+            <div class="mb-3 flex items-center space-x-3">
                 <input type="checkbox" id="filter-cells" name="filter_cells" value="on" checked
-                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                <label for="filter-cells" class="text-sm text-gray-700 mr-2">Filter cells expressed in less
-                    than</label>
-                <input type="number" id="filter-cells-value" name="filter_cells_value" value="500" min="0"
-                    class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
-                <span class="text-sm text-gray-700 ml-2">genes</span>
+                       class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 flex-shrink-0" />
+                <label for="filter-cells" class="text-sm text-gray-700">Keep cells with at least</label>
+                <input type="number" id="min-genes" name="min_genes" value="100" min="0"
+                       class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
+                <span class="text-sm text-gray-700">genes</span>
             </div>
 
-            <div class="mb-3 flex items-center">
+            <!-- Keep Genes by Cell Count -->
+            <div class="mb-3 flex items-center space-x-3">
                 <input type="checkbox" id="filter-genes" name="filter_genes" value="on" checked
-                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                <label for="filter-genes" class="text-sm text-gray-700 mr-2">Filter genes expressed in less
-                    than</label>
-                <input type="number" id="filter-genes-value" name="filter_genes_value" value="100" min="0"
-                    class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
-                <span class="text-sm text-gray-700 ml-2">cells</span>
+                       class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 flex-shrink-0" />
+                <label for="filter-genes" class="text-sm text-gray-700">Keep genes found in at least</label>
+                <input type="number" id="min-cells" name="min_cells" value="10" min="0"
+                       class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
+                <span class="text-sm text-gray-700">cells</span>
             </div>
 
-            <div class="mb-3 flex items-center">
-                <input type="checkbox" id="qc-filter" name="qc_filter" value="on"
-                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                <label for="qc-filter" class="text-sm text-gray-700 mr-2">Mitochondrial (MT) genes < </label>
-                        <input type="number" id="qc-filter-value" name="qc_filter_value" value="10" min="0"
-                            class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
-                        <span class="text-sm text-gray-700 ml-2">%</span>
+            <!-- Keep Cells by MT Percentage -->
+            <div class="mb-3 flex items-center space-x-3">
+                <input type="checkbox" id="qc-filter" name="qc_filter" value="on" checked
+                       class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 flex-shrink-0" />
+                <label for="qc-filter" class="text-sm text-gray-700">Keep cells with Mitochondrial % less than</label>
+                <input type="number" id="max-mt-pct" name="max_mt_pct" value="100" min="0"
+                       class="w-16 p-1 border border-gray-300 rounded-md text-sm" />
+                <span class="text-sm text-gray-700">%</span>
             </div>
 
-            <div class="mb-3 flex items-center">
+            <!-- Normalization -->
+            <div class="mb-3 flex items-center space-x-3">
                 <input type="checkbox" id="data-normalize" name="data_normalize" value="on" checked
-                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-                <label for="data-normalize" class="text-sm text-gray-700 mr-2">Normalize total expression
-                    to</label>
+                       class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
+                <label for="data-normalize" class="text-sm text-gray-700">Normalize total expression to</label>
                 <input type="number" id="data-normalize-value" name="data_normalize_value" value="10000" min="0"
-                    class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
-                <span class="text-sm text-gray-700 ml-2">per cell</span>
+                       class="w-24 p-1 border border-gray-300 rounded-md text-sm" />
+                <span class="text-sm text-gray-700">per cell</span>
             </div>
 
-            <div class="flex items-center">
+            <!-- Log Transform -->
+            <div class="mb-3 flex items-center">
                 <input type="checkbox" id="log-transform" name="log_transform" value="on" checked
-                    class="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
+                       class="mr-5 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
                 <label for="log-transform" class="text-sm text-gray-700">Apply <span
-                        class="font-mono font-medium bg-gray-200 rounded-md p-1">log1p</span>
+                        class="font-mono font-semibold bg-gray-200 rounded-md p-1">log1p</span>
                     transformation</label>
             </div>
         </div>
 
         <!-- 2D Layout Section -->
-        <div class="mb-4 p-4 border border-gray-300 rounded-md">
+        <div class="p-8 rounded-lg mb-4 border border-gray-200">
             <p class="font-bold text-gray-700 mb-3 text-md">2D Layout</p>
             <div class="mb-3 flex items-center">
                 <input type="checkbox" id="have_2d_layout" name="have_2d_layout"
@@ -201,14 +252,14 @@
                 <div class="mb-3">
                     <label for="n_neighbors" class="block text-sm text-gray-700 font-semibold mb-1">Number of
                         Neighbors (n_neighbors):</label>
-                    <input type="number" name="n_neighbors" id="n_neighbors" value="15" min="1"
+                    <input type="number" name="n_neighbors" id="n_neighbors" value="15" min="2"
                         class="w-full p-2 border border-gray-300 rounded-md text-sm" />
                 </div>
 
                 <div class="mb-3">
                     <label for="min_dist" class="block text-sm text-gray-700 font-semibold mb-1">Minimum Distance
                         (min_dist):</label>
-                    <input type="number" step="0.01" name="min_dist" id="min_dist" value="0.1" min="0"
+                    <input type="number" step="0.01" name="min_dist" id="min_dist" value="0.3" min="0"
                         class="w-full p-2 border border-gray-300 rounded-md text-sm" />
                 </div>
 
@@ -221,11 +272,32 @@
                         <option value="euclidean" selected>euclidean</option>
                     </select>
                 </div>
+
+                <div class="mb-3">
+                    <div class="flex items-center space-x-1">
+                        <label for="random-state" class="block text-sm text-gray-700 font-semibold mb-1">Random State (Optional):</label>
+                        <button type="button"
+                                class="text-blue-500 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 rounded-full info-btn"
+                                data-tooltip-id="random-state-tooltip"
+                                tabindex="0"
+                                aria-label="Info">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="white"></circle>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <input type="number" id="random-state" name="random_state" min="0" max="2147483647"
+                           class="w-full p-2 border border-gray-300 rounded-md text-sm" placeholder="e.g. 42" />
+                    <div id="random-state-tooltip" class="hidden absolute z-10 bg-white border border-gray-300 rounded p-2 text-xs text-gray-700 shadow-md w-64">
+                        <strong>Random State:</strong> This parameter sets the random seed for reproducibility. Enter an integer value to ensure the same UMAP result each time. Leave blank for random behavior.
+                    </div>
+                </div>
             </div>
         </div>
 
         <!-- Benjamini-Hochberg Alpha Section -->
-        <div class="mb-6 p-4 border border-gray-300 rounded-md">
+        <div class="p-8 rounded-lg mb-4 border border-gray-200">
             <div class="">
                 <label for="fdr_level" class="block text-sm text-gray-700 font-semibold mb-1">
                     Desired False Discovery Rate Level (α) for Benjamini-Hochberg Correction
