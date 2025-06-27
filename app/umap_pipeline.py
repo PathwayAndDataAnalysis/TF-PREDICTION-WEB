@@ -61,49 +61,6 @@ def run_umap_pipeline(
             current_app.logger.info(f"[UMAP] Loading .h5ad file: {gene_expr['h5ad_filepath']}")
             adata = sc.read_h5ad(gene_expr["h5ad_filepath"])
 
-            # Check if adata.var.index is ensemble IDs (if more than 50% of the index starts with "ENSG")
-            if adata.var.index.str.startswith("ENSG").mean() > 0.5:
-                current_app.logger.info("[UMAP] Detected Ensembl IDs in var index. Converting to gene symbols.")
-                common_names = ['gene_symbols', 'symbol', 'gene_name', 'symbols']
-                for g_name in common_names:
-                    if g_name in adata.var.columns:
-                        current_app.logger.info(f"[UMAP] Found gene symbols in column '{g_name}'. Converting var index.")
-                        adata.var_names = adata.var[g_name]
-                        adata.var_names_make_unique()
-                        current_app.logger.info(f"[UMAP] Converted var index to gene symbols using column '{g_name}'.")
-                        break
-                # Not found
-                ensembl_map_file = ""
-                if gene_expr.get("species") == "human":
-                    ensembl_map_file = "human_gencode_mapping.csv"
-                elif gene_expr.get("species") == "mouse":
-                    ensembl_map_file = "mouse_gencode_mapping.csv"
-                else:
-                    ensembl_map_file = ""
-                if ensembl_map_file:
-                    script_dir = os.path.dirname(os.path.abspath(__file__))
-                    gene_ensembl_map_df = pd.read_csv(os.path.join(script_dir, "..", "prior_data", ensembl_map_file))
-
-                    # gene_ensembl_map_df is dataframe with columns: "ensembl_id", "gene_symbol". Now we can map the Ensembl IDs to gene symbols
-                    adata.var["gene_symbols"] = adata.var.index.map(
-                        gene_ensembl_map_df.set_index("ensembl_id")["gene_symbol"]
-                    )
-                    adata.var_names = adata.var["gene_symbols"]
-                    adata.var_names_make_unique()
-
-                # if "feature_name" in adata.var.columns:
-                #     current_app.logger.warning(
-                #         "[UMAP] No gene symbols found in var columns. Using 'feature_name' as fallback."
-                #     )
-                #     try:
-                #         adata.var["gene_symbols"] = adata.var["feature_name"].str.split("_").str[0]
-                #         adata.var_names = adata.var["gene_symbols"]
-                #         adata.var_names_make_unique()
-                #     except Exception as e:
-                #         current_app.logger.error(
-                #             f"[UMAP] Failed to extract gene symbols from 'feature_name': {e}. Using original var index."
-                #         )
-
             # Save metadata obs_keys in analysis
             metadata_cols = adata.obs_keys()[1:] if adata.obs_keys() else []
             current_app.logger.info(f"[UMAP] Metadata columns found in .h5ad file: {metadata_cols}")
@@ -125,14 +82,74 @@ def run_umap_pipeline(
                 # Ensure metadata and expression data have the same cells
                 common_cells = gene_exp.index.intersection(meta_data.index)
                 current_app.logger.info(f"Found {len(common_cells)} common cells between expression and metadata.")
-                gene_exp = gene_exp.loc[common_cells]
-                meta_data = meta_data.loc[common_cells]
 
-                adata = sc.AnnData(gene_exp, obs=meta_data)
-                metadata_cols = meta_data.columns.tolist()
+                if len(common_cells) > 0:
+                    gene_exp = gene_exp.loc[common_cells]
+                    meta_data = meta_data.loc[common_cells]
+
+                    adata = sc.AnnData(gene_exp, obs=meta_data)
+                    metadata_cols = meta_data.columns.tolist()
+                else:
+                    current_app.logger.warning(
+                        "[UMAP] No common cells found between gene expression and metadata files. "
+                        "Creating AnnData with gene expression only."
+                    )
+                    adata = sc.AnnData(gene_exp)
+
             else:
                 current_app.logger.info("[UMAP] No metadata file provided, creating AnnData with gene_exp only.")
                 adata = sc.AnnData(gene_exp)
+
+
+        # ------- Check for Ensembl IDs and map to gene symbols -------
+        mapped = False
+        if adata.var.index.str.startswith("ENSG").mean() > 0.5:
+            current_app.logger.info("[UMAP] Detected Ensembl IDs in var index. Converting to gene symbols.")
+            common_names = ['gene_symbols', 'symbol', 'gene_name', 'symbols']
+
+            for g_name in common_names:
+                if g_name in adata.var.columns:
+                    current_app.logger.info(
+                        f"[UMAP] Found gene symbols in column '{g_name}'. Converting var index.")
+                    adata.var_names = adata.var[g_name]
+                    adata.var_names_make_unique()
+                    current_app.logger.info(f"[UMAP] Converted var index to gene symbols using column '{g_name}'.")
+                    mapped = True
+                    break
+
+            if not mapped and "feature_name" in adata.var.columns:
+                current_app.logger.warning("[UMAP] No gene symbols found in var columns. Using 'feature_name' as fallback.")
+                try:
+                    adata.var["gene_symbols"] = adata.var["feature_name"].str.split("_").str[0]
+                    adata.var_names = adata.var["gene_symbols"]
+                    adata.var_names_make_unique()
+                    mapped = True
+                except Exception as e:
+                    current_app.logger.error(
+                        f"[UMAP] Failed to extract gene symbols from 'feature_name': {e}. Using original var index."
+                    )
+
+            if not mapped:
+                current_app.logger.info("[UMAP] No luck mapping Ensembl IDs to gene symbols. Using auto-detection.")
+                if gene_expr.get("species") == "human":
+                    ensembl_map_file = "human_gencode_mapping.csv"
+                elif gene_expr.get("species") == "mouse":
+                    ensembl_map_file = "mouse_gencode_mapping.csv"
+                else:
+                    ensembl_map_file = ""
+
+                if ensembl_map_file:
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    gene_ensembl_map_df = pd.read_csv(
+                        os.path.join(script_dir, "..", "prior_data", ensembl_map_file))
+
+                    # gene_ensembl_map_df is dataframe with columns: "ensembl_id", "gene_symbol". Now we can map the Ensembl IDs to gene symbols
+                    adata.var["gene_symbols"] = adata.var.index.map(
+                        gene_ensembl_map_df.set_index("ensembl_id")["gene_symbol"]
+                    )
+                    adata.var_names = adata.var["gene_symbols"]
+                    adata.var_names_make_unique()
+                    current_app.logger.info("[UMAP] Successfully mapped Ensembl IDs to gene symbols.")
 
 
         # ------- Data Filtering and Preprocessing -------
@@ -189,7 +206,7 @@ def run_umap_pipeline(
                 if num_mt_genes_found > 0:
                     sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], percent_top=None, log1p=False, inplace=True)
                     mito_threshold = float(data_filtering.get("max_mt_pct", 100)) # Default to 100% (no filtering) if not provided
-                    adata = adata[adata.obs.pct_counts_mt < mito_threshold, :]
+                    adata = adata[adata.obs.pct_counts_mt < mito_threshold, :].copy()
 
                     # catastrophic case where all cells are removed
                     if adata.n_obs == 0:
