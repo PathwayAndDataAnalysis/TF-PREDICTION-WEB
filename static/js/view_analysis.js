@@ -33,6 +33,8 @@ const moreInfoBtn = document.getElementById("more-info-btn");
 const modal = document.getElementById("more-info-modal");
 const closeModalBtn = document.getElementById("close-modal-btn");
 
+const totalCells = document.getElementById("total-cells");
+
 
 plotTypeSelect.addEventListener("change", function () {
 	if (this.value === "umap_plot") {  // UMAP Plot
@@ -112,6 +114,10 @@ if (colorBySelect) {
 
 function updatePlot(plot_data){
 	if (plot_data.data && plot_data.layout) {
+		total_cells = plot_data.data.reduce((acc, trace) => acc + (trace.x ? trace.x.length : 0), 0);
+		totalCells.textContent = `Total Cells: ${total_cells}`;
+		console.log(plot_data.data);
+
 		plot_data.layout.dragmode = "pan"; // Set default to pan
 		plot_data.layout.hovermode = "closest"; // Set default hover mode
 		plot_data.layout.showlegend = showLegendCheckbox.checked;
@@ -136,6 +142,11 @@ function updatePlot(plot_data){
 			title: plot_data.layout.yaxis.title,
 		}
 		plot_data.data.forEach(trace => {
+			if (trace.cluster && trace.x && trace.x.length !== undefined) {
+				const clusterCount = trace.x.length;
+				trace.cluster = `${trace.cluster} (${clusterCount})`;
+				trace.name = `${trace.name} (${clusterCount})`;
+			}
 			trace.marker = trace.marker || {};
 			trace.marker.size = pointSizeSlider ? Number(pointSizeSlider.value) : defaultPointSize;
 			trace.marker.opacity = opacitySlider ? Number(opacitySlider.value) : defaultOpacity;
@@ -147,8 +158,6 @@ function updatePlot(plot_data){
 			displaylogo: false,
 			scrollZoom: true
 		});
-
-		console.log("plot_data", plot_data);
 
 		plotTitle.textContent = plot_data.layout.title;
 		fdrLevel.value = plot_data.fdr_level;
@@ -393,4 +402,5 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
     }
+
 });

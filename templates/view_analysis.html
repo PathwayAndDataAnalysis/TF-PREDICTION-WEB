@@ -125,23 +125,23 @@ block content %}
 					></div>
 				</div>
 			</div>
-			<div class="mt-1">
-				<p class="text-sm text-gray-600">
-					<strong>Status:</strong>
-					<span
-						class="font-semibold {% if analysis.status == 'Completed' %} text-green-600 {% elif analysis.status == 'Failed' %} text-red-600 {% elif analysis.status == 'Running' %} text-blue-600 {% else %} text-yellow-600 {% endif %}"
-					>
-						{{ analysis.status }}</span
-					>
-				</p>
-				<p class="text-xs text-gray-500 mt-1">
-					<strong>Created:</strong> {{ analysis.created_at | format_datetime }}
-				</p>
-				{% if analysis.description %}
-				<p class="text-sm text-gray-600 mt-1">
-					<strong>Description:</strong> {{ analysis.description }}
-				</p>
-				{% endif %}
+			<div class="mt-1 flex justify-between">
+                <div>
+                    <p class="text-sm text-gray-600">
+                        <strong>Status:</strong>
+                        <span
+                            class="font-semibold {% if analysis.status == 'Completed' %} text-green-600 {% elif analysis.status == 'Failed' %} text-red-600 {% elif analysis.status == 'Running' %} text-blue-600 {% else %} text-yellow-600 {% endif %}"
+                        >
+                            {{ analysis.status }}</span
+                        >
+                    </p>
+                    <p class="text-xs text-gray-500 mt-1">
+                        <strong>Created:</strong> {{ analysis.created_at | format_datetime }}
+                    </p>
+                </div>
+                <div>
+                    <p id="total-cells" class="mt-4 font-mono text-gray-600 text-sm font-semibold"></p>
+                </div>
 			</div>
 		</div>
 

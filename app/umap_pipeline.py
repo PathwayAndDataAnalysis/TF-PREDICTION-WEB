@@ -62,7 +62,7 @@ def run_umap_pipeline(
             adata = sc.read_h5ad(gene_expr["h5ad_filepath"])
 
             # Save metadata obs_keys in analysis
-            metadata_cols = adata.obs_keys()[1:] if adata.obs_keys() else []
+            metadata_cols = adata.obs_keys() if adata.obs_keys() else []
             current_app.logger.info(f"[UMAP] Metadata columns found in .h5ad file: {metadata_cols}")
 
         else:
