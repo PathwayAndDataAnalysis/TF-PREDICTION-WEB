@@ -174,8 +174,8 @@ def index():
 
         # Enrich Layout input
         layout_input = inputs.get('layout', {})
-        if layout_input.get('source') == 'FILE' and layout_input.get('layout_file_2d'):
-            layout_name = layout_input['layout_file_2d']
+        if layout_input.get('source') == 'FILE' and layout_input.get('layout_filepath'):
+            layout_name = layout_input['layout_filepath'].split("/")[-1]
             display_inputs['layout'] = filename_map.get(layout_name, layout_name)
         elif layout_input.get('source') == 'UMAP_GENERATED':
             display_inputs['layout'] = "Generated from data"

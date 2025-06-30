@@ -42,3 +42,17 @@ body {
 .modebar-btn {
   white-space: nowrap !important;
 }
+
+/* Fade and slide in animation for the QC plots container */
+.qc-fade-slide {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.5s cubic-bezier(0.4,0,0.2,1), transform 0.5s cubic-bezier(0.4,0,0.2,1);
+  pointer-events: none;
+}
+
+.qc-fade-slide.show {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}

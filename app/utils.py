@@ -30,6 +30,26 @@ def run_in_background(fn, *args, **kwargs):
     return future
 
 
+def _get_summary_stats(data_series):
+    """
+    Calculates summary statistics for a pandas Series, handling NaNs.
+    """
+    stats = data_series.describe()
+    if stats.get("count", 0.0) == 0.0:
+        return {
+            "mean": 0.0,
+            "sd": 0.0,
+            "min": 0.0,
+            "max": 0.0
+        }
+    return {
+        "mean": round(float(stats.get("mean", 0)), 2),
+        "sd": round(float(stats.get("std", 0)), 2),
+        "min": round(float(stats.get("min", 0)), 2),
+        "max": round(float(stats.get("max", 0)), 2),
+    }
+
+
 def calculate_and_save_qc_metrics(user_id, filename, file_path):
     """
     Reads an uploaded file, calculates QC metrics using Scanpy,
@@ -40,18 +60,73 @@ def calculate_and_save_qc_metrics(user_id, filename, file_path):
             current_app.logger.error(f"Error: Could not find path for {filename} for user {user_id}")
             return
 
+        BINS = 150
+        qc_results = {}
+
         # Read data into AnnData object
         if filename.endswith('.h5ad'):
             adata = sc.read_h5ad(file_path)
+
+            # Get only the non-zero expression values, which is a much smaller array
+            non_zero_expr = adata.X.data
+
+            if non_zero_expr.size > 0:
+                # Calculate histogram only on the non-zero values
+                expr_counts, expr_bins = np.histogram(non_zero_expr, bins=BINS)
+
+                # Calculate the number of zero values separately
+                total_elements = adata.n_obs * adata.n_vars
+                num_zeros = total_elements - len(non_zero_expr)
+
+                # Add the count of zeros to the first bin of the histogram
+                expr_counts[0] += num_zeros
+
+                expr_stats = {
+                    "mean": round(float(non_zero_expr.sum() / total_elements), 3),  # Mean across all elements
+                    "sd": round(float(np.std(non_zero_expr)), 2),
+                    "min": round(float(np.min(non_zero_expr)), 2),
+                    "max": round(float(np.max(non_zero_expr)), 2),
+                }
+            else:
+                expr_counts, expr_bins = [], []
+                expr_stats = {"mean": 0.0, "sd": 0.0, "min": 0.0, "max": 0.0}
+
+            qc_results["gene_expression"] = {
+                "counts": expr_counts.tolist(),
+                "bins": expr_bins.tolist(),
+                **expr_stats
+            }
+
         else:  # For .tsv, .csv
-            adata = sc.AnnData(pd.read_csv(file_path, index_col=0))
+            # Infer delimiter based on file extension
+            delimiter = infer_delimiter(file_path)
+            adata = sc.AnnData(pd.read_csv(file_path, index_col=0, delimiter=delimiter))
+            gene_exp_df = pd.read_csv(file_path, index_col=0, delimiter=delimiter)
+
+            expr_flat = gene_exp_df.values.flatten()
+            expr_flat = expr_flat[np.isfinite(expr_flat)]  # remove NaN/Inf
+            if expr_flat.size > 0:
+                expr_counts, expr_bins = np.histogram(expr_flat, bins=BINS)
+                expr_stats = {
+                    "mean": round(float(np.mean(expr_flat)), 2),
+                    "sd": round(float(np.std(expr_flat)), 2),
+                    "min": round(float(np.min(expr_flat)), 2),
+                    "max": round(float(np.max(expr_flat)), 2),
+                }
+            else:
+                expr_counts, expr_bins = [], []
+                expr_stats = {"mean": 0.0, "sd": 0.0, "min": 0.0, "max": 0.0}
+            qc_results["gene_expression"] = {
+                "counts": expr_counts.tolist(),
+                "bins": expr_bins.tolist(),
+                **expr_stats
+            }
 
         # Identify mitochondrial genes (works for both human 'MT-' and mouse 'mt-')
         adata.var['mt'] = adata.var_names.str.startswith(('MT-', 'mt-'))
         sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], percent_top=None, log1p=False, inplace=True)
 
         # Generate histogram data (lightweight for JSON storage)
-        qc_results = {}
         metrics = {
             "n_genes_by_counts": adata.obs['n_genes_by_counts'],  # Genes per cell
             "n_cells_by_counts": adata.var['n_cells_by_counts'],  # Cells per gene
@@ -59,44 +134,18 @@ def calculate_and_save_qc_metrics(user_id, filename, file_path):
         }
 
         for name, data in metrics.items():
-            counts, bins = np.histogram(data.dropna(), bins=300)
-            qc_results[name] = {
-                "counts": counts.tolist(),
-                "bins": bins.tolist()
-            }
-
-        mean_n_genes_by_counts = adata.obs['n_genes_by_counts'].mean()
-        sd_n_genes_by_counts = adata.obs['n_genes_by_counts'].std()
-        min_n_genes_by_counts = adata.obs['n_genes_by_counts'].min()
-        max_n_genes_by_counts = adata.obs['n_genes_by_counts'].max()
-
-        mean_n_cells_by_counts = adata.var['n_cells_by_counts'].mean()
-        sd_n_cells_by_counts = adata.var['n_cells_by_counts'].std()
-        min_n_cells_by_counts = adata.var['n_cells_by_counts'].min()
-        max_n_cells_by_counts = adata.var['n_cells_by_counts'].max()
-
-        mean_pct_counts_mt = adata.obs['pct_counts_mt'].mean()
-        sd_pct_counts_mt = adata.obs['pct_counts_mt'].std()
-        min_pct_counts_mt = adata.obs['pct_counts_mt'].min()
-        max_pct_counts_mt = adata.obs['pct_counts_mt'].max()
-
-        data_summary = {
-            "mean_n_genes_by_counts": round(float(mean_n_genes_by_counts), 2),
-            "sd_n_genes_by_counts": round(float(sd_n_genes_by_counts), 2),
-            "min_n_genes_by_counts": round(float(min_n_genes_by_counts), 2),
-            "max_n_genes_by_counts": round(float(max_n_genes_by_counts), 2),
-            "mean_n_cells_by_counts": round(float(mean_n_cells_by_counts), 2),
-            "sd_n_cells_by_counts": round(float(sd_n_cells_by_counts), 2),
-            "min_n_cells_by_counts": round(float(min_n_cells_by_counts), 2),
-            "max_n_cells_by_counts": round(float(max_n_cells_by_counts), 2),
-            "mean_pct_counts_mt": round(float(mean_pct_counts_mt), 2),
-            "sd_pct_counts_mt": round(float(sd_pct_counts_mt), 2),
-            "min_pct_counts_mt": round(float(min_pct_counts_mt), 2),
-            "max_pct_counts_mt": round(float(max_pct_counts_mt), 2)
-        }
+            valid_data = data.dropna()
+            if not valid_data.empty:
+                counts, bins = np.histogram(valid_data, bins=BINS)
+                qc_results[name] = {
+                    "counts": counts.tolist(),
+                    "bins": bins.tolist(),
+                    **_get_summary_stats(valid_data)
+                }
+            else:
+                qc_results[name] = {"counts": [], "bins": []}
 
         qc_status = "completed"
-        qc_results['data_summary'] = data_summary
 
     except Exception as e:
         current_app.logger.error(f"Error calculating QC for {filename}: {e}")
@@ -194,11 +243,6 @@ def update_analysis_status(
         current_app.logger.error(f"[UTILS] Error updating analysis status: {e}")
         # Don't raise the exception to prevent cascading failures
 
-
-# def infer_delimiter(filepath):
-#     with open(filepath, 'r') as f:
-#         first_line = f.readline()
-#         return '\t' if '\t' in first_line else ','
 
 def infer_delimiter(filepath):
     ext = filepath.split('.')[-1]

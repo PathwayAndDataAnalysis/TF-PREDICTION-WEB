@@ -183,13 +183,15 @@
 
 
             <!-- Search Bar -->
-            <div class="mb-4">
-                <input type="text" id="analysis-search-input" placeholder="Search analyses by name or input file..."
-                       class="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"/>
-            </div>
+            {% if current_user_analyses %}
+                <div class="mb-4">
+                    <input type="text" id="analysis-search-input" placeholder="Search analyses by name or input file..."
+                           class="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+                </div>
+            {% endif %}
 
             {% if current_user_analyses %}
-            <!-- NEW: Container for Analysis Cards -->
+            <!-- Container for Analysis Cards -->
             <div id="analysis-cards-container" class="space-y-4">
                 {% for analysis in current_user_analyses %}
                 <!-- Analysis Card -->
