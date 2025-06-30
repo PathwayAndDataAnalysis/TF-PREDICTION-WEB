@@ -4,162 +4,272 @@
 
 {% block content %}
 
-<div class="grid md:grid-cols-2 gap-4">
-    <!-- Upload New Data Section -->
-    <div class="bg-white p-4 rounded-lg shadow-md">
-        <h2 class="text-l font-semibold text-gray-700 mb-4 border-b pb-2">Upload New Data</h2>
-        <form method="POST" action="{{ url_for('main_routes.upload_data') }}" enctype="multipart/form-data">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+    <!-- Main content -->
+    <div class="">
 
-            <div class="mb-4">
-                <label for="data_file" class="block text-gray-700 text-sm font-bold mb-2">Choose a file:</label>
-                <input type="file" id="data_file" name="data_file" required
-                    class="block w-full text-sm text-gray-500
-                                  file:mr-4 file:py-2 file:px-4
-                                  file:rounded-md file:border-0
-                                  file:text-sm file:font-semibold
-                                  file:bg-blue-50 file:text-blue-700
-                                  hover:file:bg-blue-100
-                                  border border-gray-300 rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <p class="text-xs text-gray-500 mt-1">Allowed types: .h5ad, .txt, .csv, .tsv, etc.</p>
+        <!-- Uploaded Files Section -->
+        <div class="bg-white p-4 rounded-lg shadow-md">
+            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                <h2 class="text-l font-semibold text-gray-700">Your Uploaded Files</h2>
+
+                <!-- New "Upload" button to trigger the modal -->
+                <button id="open-upload-modal-btn"
+                    class="bg-blue-500 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out text-sm flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    Upload New File
+                </button>
             </div>
 
-            <div id="gene-exp-checkbox-container" class="mb-4 hidden">
-                <label for="is_gene_expression" class="flex items-center text-sm">
-                    <input type="checkbox" id="is_gene_expression" name="is_gene_expression" value="on"
-                           class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mr-2">
-                    <span>This file contains a gene expression matrix (cells x genes).</span>
-                </label>
-            </div>
+            {% if user_files %}
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">File Name</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">QC</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
+                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Uploaded</th>
+                                <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            {% for file_info in user_files %}
+                            <tr class="align-top">
+                                <td class="px-4 py-3 whitespace-nowrap">
+                                    <div class="text-sm text-gray-900 truncate" title="{{ file_info.original_filename | default(file_info.filename, true) }}" style="max-width: 250px;">
+                                        {{ file_info.original_filename | default(file_info.filename, true) }}
+                                    </div>
 
-            <div class="mb-4">
-                <label for="description" class="block text-gray-700 text-sm font-bold mb-2">Description
-                    (optional):</label>
-                <textarea id="description" name="description" rows="3"
-                    class="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
-            </div>
+                                    {% if file_info.description %}
+                                        {% set desc_len = file_info.description | length %}
+                                        {% set max_len = 40 %}
 
-            <input type="submit" value="Upload Data"
-                class="w-full bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline cursor-pointer transition duration-150 ease-in-out">
-        </form>
-    </div>
+                                        <div class="text-xs text-gray-500 mt-1" style="max-width: 250px;">
+                                            {% if desc_len > max_len %}
+                                                {# Display truncated text and the 'See more' button #}
+                                                <span class="description-short">{{ file_info.description[:max_len] }}...</span>
+                                                <span class="description-full hidden whitespace-normal">{{ file_info.description }}</span>
+                                                <button class="see-more-btn text-blue-600 hover:underline text-xs ml-1">See more</button>
+                                            {% else %}
+                                                {# Display the full description if it's short #}
+                                                <span>{{ file_info.description }}</span>
+                                            {% endif %}
+                                        </div>
+                                    {% endif %}
 
-    <!-- Uploaded Files Section -->
-    <div class="bg-white p-4 rounded-lg shadow-md">
-        <h2 class="text-l font-semibold text-gray-700 mb-4 border-b pb-2">Your Uploaded Files</h2>
-        {% if user_files %}
-        <ul class="space-y-2">
-            {% for file_info in user_files %}
-            <li
-                class="flex items-center justify-between p-3 bg-blue-50 hover:bg-gray-100 rounded-md border border-gray-200">
-                <div>
-                    <p class="font-medium text-gray-800">{{ file_info.filename }}</p>
-                    {% if file_info.description %}
-                    <p class="text-sm text-gray-600">{{ file_info.description }}</p>
-                    {% endif %}
+                                </td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{{ file_info.file_type | default('N/A', true) }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap">
+                                    {% if file_info.qc_status == 'completed' %}
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">✓ Completed</span>
+                                    {% elif file_info.qc_status == 'processing' %}
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 animate-pulse">... Processing</span>
+                                    {% elif file_info.qc_status == 'failed' %}
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">✗ Failed</span>
+                                    {% else %}
+                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">- N/A</span>
+                                    {% endif %}
+                                </td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{{ file_info.file_size | format_filesize }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{{ file_info.upload_date | format_datetime }}</td>
+                                <td class="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
+                                    <a href="{{ url_for('main_routes.download_data', filename=file_info.filename) }}" class="text-indigo-600 hover:text-indigo-900 mr-4">Download</a>
+
+                                    <form method="POST" action="{{ url_for('main_routes.delete_data', filename=file_info.filename) }}" style="display:inline;">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                                        <button type="submit" onclick="return confirm('Are you sure you want to delete this file?');" class="text-red-600 hover:text-red-900">Delete</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
-                <form method="POST" action="{{ url_for('main_routes.delete_data', filename=file_info.filename) }}"
-                    style="display:inline;">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
-                    <button type="submit"
-                        onclick="return confirm('Are you sure you want to delete {{ file_info.filename }}?');"
-                        class="bg-red-500 hover:bg-red-700 text-white text-xs font-semibold py-2 px-3 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">
-                        Delete
-                    </button>
-                </form>
-            </li>
-            {% endfor %}
-        </ul>
-        {% else %}
-        <div class="text-center py-6">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-gray-400 mb-2" fill="none"
-                viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                    d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15.91 15.91L18 18M8.09 15.91L6 18M12 18v-2">
-                </path>
-            </svg>
-            <p class="text-gray-500">No files uploaded yet.</p>
-            <p class="text-sm text-gray-400 mt-1">Use the form on the left to upload your first dataset.</p>
+
+            {% else %}
+                <div class="text-center py-6">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-gray-400 mb-2" fill="none"
+                     viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.91 15.91L18 18M8.09 15.91L6 18M12 18v-2">
+                    </path>
+                </svg>
+
+                <p class="text-gray-500">No files uploaded yet.</p>
+                <p class="text-sm text-gray-400 mt-1">Use the button above to upload your dataset.</p>
+            </div>
+            {% endif %}
         </div>
-        {% endif %}
-    </div>
-</div>
 
-<!-- Analysis Section -->
-<div class="mt-6 bg-white p-4 rounded-lg shadow-md">
-    <div class="flex justify-between items-center mb-4 border-b pb-2">
-        <h2 class="text-l font-semibold text-gray-700">Your Analyses</h2>
-        <a href="{{ url_for('main_routes.create_analysis_page') }}"
-            class="bg-blue-500 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out text-sm">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block mr-1 -mt-0.5" fill="none"
-                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path>
-            </svg>
-            Create New Analysis
-        </a>
-    </div>
 
-    {% if current_user_analyses %}
-    <ul class="space-y-3">
-        {% for analysis in current_user_analyses %}
-        <li
-            class="flex items-center justify-between p-3 bg-blue-50 hover:bg-gray-100 rounded-md border border-gray-200">
-            <div>
-                <p class="font-medium text-gray-800">{{ analysis.name }}</p>
-                <p class="text-sm text-gray-500">
-                    Status: <span class="font-semibold
-                                {% if analysis.status == 'Completed' %} text-green-600
-                                {% elif analysis.status == 'Failed' %} text-red-600
-                                {% elif analysis.status == 'Pending' %} text-blue-600
-                                {% else %} text-yellow-600 {% endif %}">
-                        {{ analysis.status }}</span>
-                </p>
-                <p>
-                    {% if analysis.inputs.layout.source == 'generate_umap' %}
-                    <span class="text-sm text-gray-600">UMAP Coordinates Generated, Data Source: {{ analysis.inputs.gene_expression.h5ad_filename }} </span>
-                    {% else %}
-                    <span class="text-sm text-gray-600">2D Layout Provided</span>
-                    {% endif %}
-                </p>
-                <p class="text-xs text-gray-400">Created: {{ analysis.created_at | format_datetime }}</p>
-                <p class="text-sm text-gray-500">
-                    <span class="font-semibold text-red-600">
-                      {{ analysis.error | default('') }}
-                    </span>
-                </p>
-            </div>
+        <!-- START: Upload Modal Structure (Initially Hidden)                    -->
+        <div id="upload-modal"
+             class="fixed inset-0 flex bg-black bg-opacity-40 hidden items-center justify-center z-50"
+             aria-modal="true"
+             role="dialog"
+        >
+            <!-- Modal Content -->
+            <div class="bg-white rounded-lg shadow-lg max-w-lg w-full p-6 relative">
+                <!-- Modal Header -->
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-semibold text-gray-800">Upload New Data</h2>
+                    <button id="close-upload-modal-btn" class="text-gray-500 hover:text-gray-800 text-3xl leading-none">×</button>
+                </div>
 
-            <div>
-                <a href="{{ url_for('main_routes.view_analysis', analysis_id=analysis.id) }}"
-                    class="bg-blue-500 hover:bg-blue-700 text-white text-xs font-semibold py-2 px-3 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out mr-2">
-                    View
-                </a>
-                <form method="POST" action="{{ url_for('main_routes.delete_analysis', analysis_id=analysis.id) }}"
-                    style="display:inline;">
+                <!-- Modal Body: Contains the upload form -->
+                <form method="POST" action="{{ url_for('main_routes.upload_data') }}" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
-                    <button type="submit"
-                        onclick="return confirm('Are you sure you want to delete the analysis: {{ analysis.name }}? This action cannot be undone.');"
-                        class="bg-red-500 hover:bg-red-700 text-white text-xs font-semibold py-2 px-3 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">
-                        Delete
-                    </button>
+
+                    <div class="mb-4">
+                        <label for="data_file" class="block text-gray-700 text-sm font-bold mb-2">Choose a file:</label>
+                        <input type="file" id="data_file" name="data_file" required
+                            class="block w-full text-sm text-gray-500
+                                          file:mr-4 file:py-2 file:px-4
+                                          file:rounded-md file:border-0
+                                          file:text-sm file:font-semibold
+                                          file:bg-blue-50 file:text-blue-700
+                                          hover:file:bg-blue-100
+                                          border border-gray-300 rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-xs text-gray-500 mt-1">Allowed types: .h5ad, .txt, .csv, .tsv, etc.</p>
+                    </div>
+
+                    <div id="file-type-container" class="mb-4 hidden">
+                        <label for="file_type" class="block text-gray-700 text-sm font-bold mb-2">File Type:</label>
+                        <select id="file_type" name="file_type" required
+                                class="block w-full bg-white border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            <option value="Gene Expression">Gene Expression (e.g., counts matrix) (Cells x Genes)</option>
+                            <option value="Metadata">Metadata (e.g., cell types, conditions)</option>
+                            <option value="2D Layout">2D Layout (e.g., UMAP/PCA coordinates)</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="description" class="block text-gray-700 text-sm font-bold mb-2">Description
+                            (optional):</label>
+                        <textarea id="description" name="description" rows="3"
+                            class="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"></textarea>
+                    </div>
+
+                    <!-- Modal Footer/Actions -->
+                    <div class="flex justify-end items-center mt-6">
+                         <button type="button" id="cancel-upload-btn" class="mr-4 text-gray-600 hover:text-gray-800">Cancel</button>
+                         <input type="submit" value="Upload Data"
+                            class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline cursor-pointer transition duration-150 ease-in-out">
+                    </div>
                 </form>
             </div>
-        </li>
-        {% endfor %}
-    </ul>
-    {% else %}
-    <div class="text-center py-6">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-gray-400 mb-2" fill="none"
-            viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round"
-                d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
-            </path>
-        </svg>
-        <p class="text-gray-500">No analyses started yet.</p>
-        <p class="text-sm text-gray-400 mt-1">Click "Create New Analysis" to begin.</p>
+        </div>
+        <!-- END: Upload Modal Structure -->
+
+
+        <!-- Analysis Section -->
+        <div class="mt-4 bg-white p-4 rounded-lg shadow-md">
+            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                <h2 class="text-l font-semibold text-gray-700">Your Analyses</h2>
+                <a href="{{ url_for('main_routes.create_analysis_page') }}"
+                    class="bg-blue-500 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out text-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block mr-1 -mt-0.5" fill="none"
+                        viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path>
+                    </svg>
+                    Create New Analysis
+                </a>
+            </div>
+
+
+            <!-- Search Bar -->
+            <div class="mb-4">
+                <input type="text" id="analysis-search-input" placeholder="Search analyses by name or input file..."
+                       class="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+            </div>
+
+            {% if current_user_analyses %}
+            <!-- NEW: Container for Analysis Cards -->
+            <div id="analysis-cards-container" class="space-y-4">
+                {% for analysis in current_user_analyses %}
+                <!-- Analysis Card -->
+                <div class="analysis-card bg-gray-50 border border-gray-200 rounded-lg p-4 flex justify-between items-start hover:shadow-md transition-shadow">
+                    <!-- Left Side: Details -->
+                    <div class="flex-grow">
+                        <h3 class="text-lg font-bold text-gray-800">{{ analysis.name }}</h3>
+
+                        <!-- Status -->
+                        <p class="text-sm font-semibold mt-1 flex items-center
+                            {% if analysis.status == 'Completed' %} text-green-600
+                            {% elif analysis.status == 'Failed' %} text-red-600
+                            {% elif analysis.status == 'Pending' or analysis.status == 'In Progress' %} text-blue-600
+                            {% else %} text-yellow-600 {% endif %}">
+                            {% if analysis.status == 'Completed' %}
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            {% elif analysis.status == 'Failed' %}
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            {% else %}
+                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 9a9 9 0 0114.13-6.36M20 15a9 9 0 01-14.13 6.36" /></svg>
+                            {% endif %}
+                            {{ analysis.status }}
+                        </p>
+
+                        <!-- Input Files -->
+                        <div class="mt-2 text-xs text-gray-600 space-y-1">
+                            <div><strong>Gene Expression:</strong> {{ analysis.display_inputs.gene_expression | default('N/A', true) }}</div>
+                            {% if analysis.display_inputs.metadata %}
+                            <div><strong>Metadata:</strong> {{ analysis.display_inputs.metadata }}</div>
+                            {% endif %}
+                            <div><strong>Layout:</strong> {{ analysis.display_inputs.layout | default('N/A', true) }}</div>
+                        </div>
+
+                        <!-- Error Message -->
+                         {% if analysis.error %}
+                        <p class="text-sm text-red-600 mt-2 p-2 bg-red-50 rounded border border-red-200">
+                            <strong>Error:</strong> {{ analysis.error }}
+                        </p>
+                        {% endif %}
+
+                        <!-- Footer -->
+                        <p class="text-xs text-gray-400 mt-3">Created: {{ analysis.created_at | format_datetime }}</p>
+                    </div>
+
+                    <!-- Right Side: Actions -->
+                    <div class="flex flex-col space-y-2 flex-shrink-0 ml-4">
+                        <a href="{{ url_for('main_routes.view_analysis', analysis_id=analysis.id) }}"
+                            class="bg-blue-500 hover:bg-blue-700 text-white text-xs font-semibold py-2 px-3 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out text-center">
+                            View
+                        </a>
+                        <form method="POST" action="{{ url_for('main_routes.delete_analysis', analysis_id=analysis.id) }}" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                            <button type="submit"
+                                onclick="return confirm('Are you sure you want to delete this analysis?');"
+                                class="w-full bg-red-500 hover:bg-red-700 text-white text-xs font-semibold py-2 px-3 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">
+                                Delete
+                            </button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            {% else %}
+                <div class="text-center py-6">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto text-gray-400 mb-2" fill="none"
+                        viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+                        </path>
+                    </svg>
+                    <p class="text-gray-500">No analyses started yet.</p>
+                    <p class="text-sm text-gray-400 mt-1">Click "Create New Analysis" to begin.</p>
+                </div>
+            {% endif %}
+
+        </div>
+
+    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
+
     </div>
-    {% endif %}
-</div>
 
 {% endblock %}

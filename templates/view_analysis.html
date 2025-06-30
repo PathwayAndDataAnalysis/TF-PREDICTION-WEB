@@ -36,7 +36,7 @@ block content %}
                             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
                         </svg>
                     </button>
-                    <h3 class="text-xl font-bold text-blue-600 mb-2">Analysis Information</h3>
+                    <h3 class="text-xl font-bold text-blue-600 mb-2">Parameters and Information</h3>
                     <div class="text-gray-700 text-sm space-y-2">
                         <p><strong>Name:</strong> {{ analysis.name }}</p>
                         <p><strong>Status:</strong> {{ analysis.status }}</p>
@@ -58,13 +58,13 @@ block content %}
                         <hr/>
                         <p><strong>Data Filtering</strong></p>
                         {% if analysis.inputs.data_filtering.filter_cells %}
-                            <p><strong>Filter Cells:</strong> {{ analysis.inputs.data_filtering.filter_cells_value }} genes</p>
+                            <p><strong>Filter Cells:</strong> {{ analysis.inputs.data_filtering.min_genes }} genes</p>
                         {% endif %}
                         {% if analysis.inputs.data_filtering.filter_genes %}
-                            <p><strong>Filter Genes:</strong> {{ analysis.inputs.data_filtering.filter_genes_value }} cells</p>
+                            <p><strong>Filter Genes:</strong> {{ analysis.inputs.data_filtering.min_cells }} cells</p>
                         {% endif %}
                         {% if analysis.inputs.data_filtering.qc_filter %}
-                            <p><strong>Filter Mitochondrial (MT) genes:</strong> {{ analysis.inputs.data_filtering.qc_filter_value }} %</p>
+                            <p><strong>Filter Mitochondrial (MT) genes:</strong> {{ analysis.inputs.data_filtering.max_mt_pct }} %</p>
                         {% endif %}
                         {% if analysis.inputs.data_filtering.data_normalize %}
                             <p><strong>Normalize Total Expression:</strong> {{ analysis.inputs.data_filtering.data_normalize_value }} per cell</p>
@@ -80,6 +80,9 @@ block content %}
                             <p><strong>n_neighbors:</strong> {{ analysis.inputs.layout.umap_settings.n_neighbors }}</p>
                             <p><strong>min_dist:</strong> {{ analysis.inputs.layout.umap_settings.min_dist }}</p>
                             <p><strong>metric:</strong> {{ analysis.inputs.layout.umap_settings.metric }}</p>
+                            {% if analysis.inputs.layout.umap_settings.random_state and analysis.inputs.layout.umap_settings.random_state != 0 %}
+                                <p><strong>random_state:</strong> {{ analysis.inputs.layout.umap_settings.random_state }}</p>
+                            {% endif %}
                         {% else %}
                             <p><strong>Source:</strong> {{ analysis.inputs.gene_expression.gene_exp_filepath }}</p>
                         {% endif %}
@@ -346,7 +349,6 @@ block content %}
 	<script>
 		window.analysis = {{ analysis | tojson }};
 	</script>
-	<script src="{{ url_for('static', filename='js/common.js') }}"></script>
 	<script src="{{ url_for('static', filename='js/view_analysis.js') }}"></script>
 </div>
 

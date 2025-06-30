@@ -1,6 +1,5 @@
 import os
-import shutil  # For deleting analysis directories
-import uuid  # For unique analysis IDs
+import uuid
 from datetime import datetime, timezone  # For timestamps
 
 import numpy as np
@@ -14,7 +13,7 @@ from flask import (
     url_for,
     flash,
     current_app,
-    jsonify,
+    jsonify, send_from_directory,
 )
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -123,6 +122,24 @@ def format_datetime(value, format="%Y-%m-%d %H:%M"):
         return value.strftime(format)
     return value
 
+# This filter will format bytes into KB, MB, GB, etc.
+@main_bp.app_template_filter()
+def format_filesize(value):
+    if value is None:
+        return "N/A"
+    try:
+        size_bytes = int(value)
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024**2:
+            return f"{size_bytes/1024:.1f} KB"
+        elif size_bytes < 1024**3:
+            return f"{size_bytes/1024**2:.1f} MB"
+        else:
+            return f"{size_bytes/1024**3:.2f} GB"
+    except (ValueError, TypeError):
+        return value
+
 
 # --- Main Routes (index, data operations) ---
 @main_bp.route("/")
@@ -132,18 +149,73 @@ def index():
 
     all_users_data = get_all_users_data()
     current_user_node = all_users_data.get(current_user.id, {})
-    user_files_info = current_user_node.get("files", [])
+    user_files = current_user_node.get("files", [])
     user_analyses = current_user_node.get("analyses", [])
-    # Sort analyses by creation date, newest first (optional)
-    user_analyses_sorted = sorted(
-        user_analyses, key=lambda x: x.get("created_at", ""), reverse=True
-    )
+
+    # Create a mapping from secured filename to original filename for easy lookup
+    filename_map = {f['filename']: f.get('original_filename', f['filename']) for f in user_files}
+
+    for analysis in user_analyses:
+        inputs = analysis.get('inputs', {})
+        display_inputs = {}
+
+        # Enrich Gene Expression input
+        ge_input = inputs.get('gene_expression', {})
+        if ge_input.get('h5ad_filepath'):
+            # The h5ad_filepath is already the secured name
+            secured_name = ge_input['h5ad_filepath'].split("/")[-1]
+            display_inputs['gene_expression'] = filename_map.get(secured_name, secured_name)
+        elif ge_input.get('gene_exp_filepath'):
+            secured_name = ge_input['gene_exp_filepath'].split("/")[-1]
+            display_inputs['gene_expression'] = filename_map.get(secured_name, secured_name)
+            if ge_input.get('metadata_filepath'):
+                meta_name = ge_input['metadata_filepath'].split("/")[-1]
+                display_inputs['metadata'] = filename_map.get(meta_name, meta_name)
+
+        # Enrich Layout input
+        layout_input = inputs.get('layout', {})
+        if layout_input.get('source') == 'FILE' and layout_input.get('layout_file_2d'):
+            layout_name = layout_input['layout_file_2d']
+            display_inputs['layout'] = filename_map.get(layout_name, layout_name)
+        elif layout_input.get('source') == 'UMAP_GENERATED':
+            display_inputs['layout'] = "Generated from data"
+
+        # Add the enriched data to the analysis dictionary
+        analysis['display_inputs'] = display_inputs
+    # --- END: New Data Enrichment Step ---
+
+    user_analyses_sorted = sorted(user_analyses, key=lambda x: x.get("created_at", ""), reverse=True)
 
     return render_template(
         "index.html",
-        user_files=user_files_info,
+        user_files=user_files,
         current_user_analyses=user_analyses_sorted,
     )
+
+
+@main_bp.route("/download_data/<filename>")
+@login_required
+def download_data(filename):
+    # Security check: Ensure the requested file belongs to the current user
+    all_users_data = get_all_users_data()
+    user_files = all_users_data.get(current_user.id, {}).get("files", [])
+
+    if not any(f['filename'] == filename for f in user_files):
+        flash("File not found or access denied.", "error")
+        return redirect(url_for('main_routes.index'))
+
+    # Get the user's upload directory path
+    user_dir = get_user_specific_data_path(current_user.id)
+    if not user_dir:
+        flash("Could not locate user directory.", "error")
+        return redirect(url_for('main_routes.index'))
+
+    try:
+        # Use Flask's secure send_from_directory
+        return send_from_directory(user_dir, filename, as_attachment=True)
+    except FileNotFoundError:
+        flash("File not found on disk.", "error")
+        return redirect(url_for('main_routes.index'))
 
 
 @main_bp.route("/upload_data", methods=["POST"])
@@ -161,19 +233,10 @@ def upload_data():
 
         file = request.files["data_file"]
         description = request.form.get("description", "").strip()
-        is_gene_expression = request.form.get("is_gene_expression") == "on"
+        file_type = request.form.get("file_type", "Other")  # Default to 'Other'
 
         if file.filename == "":
             flash("No file selected for upload.", "error")
-            return redirect(url_for("main_routes.index"))
-
-        # Validate file size
-        file.seek(0, 2)  # Seek to end
-        file_size = file.tell()
-        file.seek(0)  # Reset to beginning
-
-        if file_size > MAX_FILE_SIZE:
-            flash(f"File too large. Maximum size is {MAX_FILE_SIZE / (1024 ** 3):.1f} GB.", "error")
             return redirect(url_for("main_routes.index"))
 
         if file and allowed_file(file.filename):
@@ -185,9 +248,8 @@ def upload_data():
             filename_lower = filename.lower()
             if filename_lower.endswith('.h5ad'):
                 should_run_qc = True
-            elif (filename_lower.endswith('.csv') or filename_lower.endswith('.tsv')) and is_gene_expression:
+            elif (filename_lower.endswith('.csv') or filename_lower.endswith('.tsv')) and file_type == "Gene Expression":
                 should_run_qc = True
-            # ----------------------------------
 
             user_data_storage_path = get_user_specific_data_path(current_user.id)
             if not user_data_storage_path:
@@ -211,6 +273,10 @@ def upload_data():
                 return redirect(url_for("main_routes.index"))
 
             try:
+                file.seek(0, os.SEEK_END)
+                file_size = file.tell()
+                file.seek(0)  # Rewind to the beginning so save() works correctly
+
                 with open(destination_file_path, 'wb') as f:
                     chunk_size = 8192
                     while True:
@@ -219,14 +285,20 @@ def upload_data():
                             break
                         f.write(chunk)
 
+                # Find file_type based on extension
+                file_extension = os.path.splitext(filename)[1].lower()
+                if file_extension == ".h5ad":
+                    file_type = "h5ad File"
+
                 # Store file info
                 user_files_list.append({
                     "filename": filename,  # The secured filename
                     "original_filename": original_filename,  # Keep original for display if needed
                     "description": description,
                     "path": destination_file_path,  # Store the full path for easier deletion
-                    "size": file_size,
-                    "uploaded_at": datetime.now().isoformat(),
+                    "file_type": file_type,
+                    "file_size": file_size,
+                    "upload_date": datetime.now().isoformat(),
                     **({"qc_status": "processing"} if should_run_qc else {})
                 })
 
@@ -235,7 +307,6 @@ def upload_data():
 
                 if should_run_qc:
                     # --- TRIGGER BACKGROUND QC CALCULATION ---
-                    # Run the QC calculation in a separate thread
                     run_in_background(calculate_and_save_qc_metrics, current_user.id, filename, destination_file_path)
                     flash(
                         f'File "{original_filename}" uploaded successfully! QC analysis is running in the background.',
@@ -427,27 +498,6 @@ def create_analysis():
 
         # Validate gene expression metadata file if provided
         metadata_cols = []
-        # TODO: Reading gene expression and metadata files takes time, consider async processing
-        # if metadata_file and gene_exp_file:
-        #     user_files = all_users_data.get(current_user.id, {}).get("files", [])
-        #
-        #     user_filenames = {f["filename"] for f in user_files}
-        #     if metadata_file not in user_filenames:
-        #         flash("Metadata file not found in your files.", "error")
-        #         return redirect(url_for("main_routes.create_analysis_page"))
-        #     if gene_exp_file not in user_filenames:
-        #         flash("Gene expression file not found in your files.", "error")
-        #         return redirect(url_for("main_routes.create_analysis_page"))
-        #
-        #     # If both are tabular, check index match
-        #     if metadata_file.endswith((".csv", ".tsv")) and gene_exp_file.endswith((".csv", ".tsv")):
-        #         # gene_exp = pd.read_csv(get_file_path(gene_exp_file, current_user.id), index_col=0)
-        #         metadata = pd.read_csv(get_file_path(metadata_file, current_user.id), index_col=0)
-        #         # if not gene_exp.index.equals(metadata.index):
-        #         #     flash("Gene expression and metadata files do not match in cell indices.","error")
-        #         #     return redirect(url_for("main_routes.create_analysis_page"))
-        #         metadata_cols = metadata.columns.tolist()  # Store metadata columns
-
         # 2D Layout File Validation
         if have_2d_layout:
             if not layout_file_2d:
@@ -497,7 +547,7 @@ def create_analysis():
                     ),
                     **(
                         {"metadata_filepath": get_file_path(metadata_file, current_user.id)}
-                        if not have_h5ad and metadata_file
+                        if not have_h5ad and metadata_file and metadata_file != "select-metadata-file"
                         else {}
                     ),
                 },
@@ -524,7 +574,6 @@ def create_analysis():
         save_all_users_data(all_users_data)
 
         # 1. Run UMAP Pipeline in the background to generate 2D layout
-        # if not have_2d_layout:
         run_in_background(
             run_umap_pipeline,
             current_user.id,

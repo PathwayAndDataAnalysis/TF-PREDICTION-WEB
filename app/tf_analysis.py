@@ -192,9 +192,9 @@ def run_tf_analysis(
         # Check memory before starting
         check_memory_usage()
 
-        update_analysis_status_fn(user_id=user_id, analysis_id=analysis_id, status="Running TF analysis")
+        update_analysis_status_fn(user_id=user_id, analysis_id=analysis_id, status="Running analysis")
 
-        current_app.logger.info(f"[TF_ANALYSIS] Running TF analysis for user '{user_id}', analysis '{analysis_id}'.")
+        current_app.logger.info(f"[TF_ANALYSIS] Running analysis for user '{user_id}', analysis '{analysis_id}'.")
         current_app.logger.info(f"[TF_ANALYSIS] Analysis data: {analysis_data}")
 
         # Validate input data
