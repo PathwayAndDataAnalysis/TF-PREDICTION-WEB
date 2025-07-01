@@ -60,7 +60,7 @@ def calculate_and_save_qc_metrics(user_id, filename, file_path):
             current_app.logger.error(f"Error: Could not find path for {filename} for user {user_id}")
             return
 
-        BINS = 150
+        BINS = 100
         qc_results = {}
 
         # Read data into AnnData object

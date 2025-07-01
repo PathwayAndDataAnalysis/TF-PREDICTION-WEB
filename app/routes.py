@@ -28,7 +28,8 @@ from . import (
     find_analysis_by_id,
     get_file_path,
 )
-from .tf_analysis import run_tf_analysis, bh_fdr_correction
+from .benjamini_hotchberg import bh_fdr_correction
+from .tf_analysis import run_tf_analysis
 from .umap_pipeline import run_umap_pipeline
 from .utils import run_in_background, update_analysis_status, infer_delimiter, calculate_and_save_qc_metrics
 

@@ -8,10 +8,12 @@ from flask import current_app
 from joblib import Parallel, delayed
 from scipy.sparse import issparse
 from scipy.stats import zscore, norm
-from statsmodels.stats.multitest import multipletests
 from tqdm.auto import tqdm
 import psutil
 import gc
+
+from app.benjamini_hotchberg import bh_fdr_correction
+
 
 # CORES_USED = 1 # For debugging, use a single core
 CORES_USED = max(1, int(os.cpu_count() * 0.8))  # Use 80% of available cores
@@ -28,56 +30,8 @@ def check_memory_usage():
 
 
 ###############################################################################
-#         Benjamini-Hochberg FDR correction function                          #
-###############################################################################
-
-
-def bh_fdr_correction(
-        p_value_df: pd.DataFrame, alpha: float
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
-    """
-    Performs Benjamini-Hochberg FDR correction on p-values from a file
-    and returns both adjusted p-values and rejection status.
-
-    Correction is applied independently to each column (e.g., each TF).
-    """
-    p_value_df.dropna(axis=1, how="all", inplace=True)
-
-    df_adjusted_pvals = pd.DataFrame(
-        index=p_value_df.index, columns=p_value_df.columns, dtype=float
-    )  # For q-values
-    df_reject_status = pd.DataFrame(
-        index=p_value_df.index, columns=p_value_df.columns, dtype="boolean"
-    )  # For True/False/NA
-    # Compute threshold per TF
-    thresholds = {}
-
-    for tf_name in p_value_df.columns:
-        original_pvals_for_tf = p_value_df[tf_name].dropna()
-
-        if original_pvals_for_tf.empty:
-            continue
-
-        reject_flags, corrected_pvals, _, _ = multipletests(
-            pvals=original_pvals_for_tf.values,
-            alpha=alpha,
-            method="fdr_bh",
-            is_sorted=False,
-        )
-        # Store the threshold for this TF
-        thresholds[tf_name] = original_pvals_for_tf[reject_flags].max() if reject_flags.any() else np.nan
-
-        df_adjusted_pvals.loc[original_pvals_for_tf.index, tf_name] = corrected_pvals
-        df_reject_status.loc[original_pvals_for_tf.index, tf_name] = reject_flags
-
-    thresholds_seris = pd.Series(thresholds, dtype=float)
-    return df_adjusted_pvals, df_reject_status, thresholds_seris
-
-
-###############################################################################
 #                               Helper functions                              #
 ###############################################################################
-
 
 def std_dev_mean_norm_rank(n_population: int, k_sample: int) -> float:
     """Return σₙ,ₖ – the analytic SD of the mean of *k* normalised ranks.
@@ -107,7 +61,6 @@ def std_dev_mean_norm_rank(n_population: int, k_sample: int) -> float:
 ###############################################################################
 #                      Per-cell processing function (for parallelization)     #
 ###############################################################################
-
 
 def _process_single_cell(
         cell_name: str, expression_series: pd.Series, priors_df: pd.DataFrame
@@ -209,7 +162,7 @@ def run_tf_analysis(
                 check_memory_usage()
                 time.sleep(30)  # Check every 30 seconds
 
-        # Start memory monitoring in background
+        # Start memory monitoring in the background
         memory_thread = threading.Thread(target=monitor_memory, daemon=True)
         memory_thread.start()
 
@@ -289,9 +242,13 @@ def run_tf_analysis(
 
             p_values_path = os.path.join(result_path, "p_values.csv")
             print(f"Saving p-values to {p_values_path}...")
+            # Remove columns with all NaN values
+            p_values_df.dropna(axis=1, how="all", inplace=True)
             p_values_df.to_csv(p_values_path, index=True)
+
             activation_path = os.path.join(result_path, "activation.csv")
             print(f"Saving activation results to {activation_path}...")
+            activation_df.dropna(axis=1, how="all", inplace=True)
             activation_df.to_csv(activation_path, index=True)
 
             # ───── Run Benjamini Hochberg FDR Correction ────────────────────────────────
@@ -303,7 +260,8 @@ def run_tf_analysis(
                 activation_path=activation_path,
             )
             print("Running Benjamini-Hochberg FDR correction...")
-            _, reject, p_val_thresholds_seris = bh_fdr_correction(p_value_df=p_values_df, alpha=fdr_level)
+            _, reject, p_val_thresholds_series = bh_fdr_correction(p_value_df=p_values_df, alpha=fdr_level)
+            p_val_thresholds_series.fillna(0, inplace=True)
             tf_counts = reject.sum().sort_values(ascending=False)
 
             final_output = pd.DataFrame(0, index=reject.index, columns=reject.columns)
@@ -312,7 +270,7 @@ def run_tf_analysis(
 
             # Propagate NaNs for cells/TFs where analysis couldn't be run
             final_output[p_values_df.isna()] = np.nan
-            final_output = final_output.astype("Int64")  # Use nullable integer type
+            final_output = final_output.astype("Int64")  # Use a nullable integer type
 
             bh_reject_path = os.path.join(result_path, "bh_reject.csv")
             print(f"Saving FDR results to {bh_reject_path}...")
@@ -320,7 +278,7 @@ def run_tf_analysis(
 
             p_val_threshold_path = os.path.join(result_path, "p_val_thresholds.csv")
             print(f"Saving p-value thresholds to {p_val_threshold_path}...")
-            p_val_thresholds_seris.to_csv(p_val_threshold_path, index=True)
+            p_val_thresholds_series.to_csv(p_val_threshold_path, index=True)
 
             update_analysis_status_fn(
                 user_id=user_id,
