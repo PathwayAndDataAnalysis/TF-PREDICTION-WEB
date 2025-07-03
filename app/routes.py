@@ -1,7 +1,6 @@
 import os
 import uuid
-from datetime import datetime, timezone  # For timestamps
-
+from datetime import datetime
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -13,7 +12,8 @@ from flask import (
     url_for,
     flash,
     current_app,
-    jsonify, send_from_directory,
+    jsonify,
+    send_from_directory
 )
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -42,8 +42,8 @@ MIN_DISK_SPACE = 10 * 1024 * 1024 * 1024  # 10 GB
 
 # Define constants for column names
 CLUSTER_COL = "Cluster"
-UMAP1_COL = "X_umap1"
-UMAP2_COL = "X_umap2"
+UMAP1_COL = "UMAP1"
+UMAP2_COL = "UMAP2"
 PCA1_COL = "X_pca1"
 PCA2_COL = "X_pca2"
 
@@ -611,55 +611,46 @@ def view_analysis(analysis_id):
 
 
 def generate_scatter_plot_response(
-    analysis_to_view,
-    cluster_col,
-    x_col,
-    y_col,
-    plot_title,
-    xaxis_title,
-    yaxis_title,
+        analysis_to_view,
+        plot_type,
+        plot_title,
+        xaxis_title,
+        yaxis_title,
 ):
-    layout_filepath = (
-        analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filepath", "")
-    )
-
-    if not os.path.exists(layout_filepath):
-        current_app.logger.error(
-            f"Layout file '{layout_filepath}' not found for analysis_id '{analysis_to_view['id']}'."
-        )
-        flash(
-            "Layout file not found. Delete this analysis and create new analysis",
-            "error",
-        )
-        return redirect(url_for("main_routes.index"))
-
-    # Read the UMAP/PCA coordinates file
     try:
-        sep = infer_delimiter(layout_filepath)
-        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
-        required_columns = {cluster_col, x_col, y_col}
+        artifact_path = analysis_to_view.get("artifact_path", "")
+        if not os.path.exists(artifact_path):
+            current_app.logger.error(
+                f"Result file '{artifact_path}' not found for analysis_id '{analysis_to_view['id']}'.")
+            # Using jsonify for API-like responses is better than flash/redirect here
+            return jsonify({"error": "Result artifact not found."}), 404
 
-        if not required_columns.issubset(plot_df.columns):
-            missing_cols = required_columns - set(plot_df.columns)
-            error_msg = (
-                f"Layout file missing required columns: {', '.join(missing_cols)}."
-            )
-            current_app.logger.error(f"{error_msg} File: {layout_filepath}")
-            flash(error_msg, "error")
-            return jsonify({"error": error_msg}), 400
+        # 'r' stands for read-only mode.
+        adata = sc.read_h5ad(artifact_path, backed='r')
 
-        traces = []
-        for cluster_label, group_df in plot_df.groupby(cluster_col):
-            traces.append(
-                {
-                    "cluster": str(cluster_label),
-                    "x": group_df[x_col].tolist(),
-                    "y": group_df[y_col].tolist(),
-                    "mode": "markers",
-                    "type": "scattergl",
-                    "name": str(cluster_label),
-                }
-            )
+        # Determine which coordinates to load
+        if plot_type == 'umap':
+            coord_key = 'X_umap'
+            coordinates = adata.obsm[coord_key]
+        elif plot_type == 'pca':
+            coord_key = 'X_pca'
+            coordinates = adata.obsm[coord_key]
+        else:
+            return jsonify({"error": "Invalid plot type specified."}), 400
+
+        # Check if the required coordinates exist
+        if coord_key not in adata.obsm.keys():
+            return jsonify({"error": f"Coordinates '{coord_key}' not found in artifact."}), 404
+
+        traces = [
+            {
+                "x": coordinates[:, 0].tolist(),
+                "y": coordinates[:, 1].tolist(),
+                "mode": "markers",
+                "type": "scattergl",
+                "name": "Cells"
+            }
+        ]
 
         layout = {
             "title": plot_title,
@@ -672,45 +663,16 @@ def generate_scatter_plot_response(
             "layout": layout,
             "metadata_cols": analysis_to_view.get("metadata_cols", []),
             "tfs": analysis_to_view.get("tfs", []),
-            "fdr_level": analysis_to_view.get("inputs", {}).get("fdr_level", 0.05),
+            "fdr_level": analysis_to_view.get("inputs", {}).get("fdr_level")
         }
         return jsonify(graph_data), 200
 
-    except pd.errors.EmptyDataError:
-        current_app.logger.error(f"UMAP/PCA file is empty: {layout_filepath}")
-        return jsonify({"error": "UMAP/PCA coordinates file is empty."}), 500
-
-    except pd.errors.ParserError as e:
-        current_app.logger.error(
-            f"Error parsing UMAP/PCA file: {layout_filepath}. Details: {e}"
-        )
-        return (
-            jsonify(
-                {"error": "Failed to parse UMAP/PCA coordinates file. Invalid format."}
-            ),
-            500,
-        )
-
-    except KeyError as e:
-        current_app.logger.error(
-            f"Missing expected column in UMAP/PCA file: {e}. File: {layout_filepath}",
-            exc_info=True,
-        )
-        return jsonify({"error": f"Data processing error: Missing column {e}."}), 500
-
     except Exception as e:
         current_app.logger.error(
-            f"Unexpected error processing UMAP/PCA file for analysis_id '{analysis_to_view['id']}': {e}",
+            f"Unexpected error for analysis_id '{analysis_to_view['id']}': {e}",
             exc_info=True,
         )
-        return (
-            jsonify(
-                {
-                    "error": "An unexpected error occurred while generating the UMAP/PCA plot."
-                }
-            ),
-            500,
-        )
+        return jsonify({"error": "An unexpected error occurred while preparing the plot."}), 500
 
 
 @main_bp.route("/analysis/umap_plot/<analysis_id>", methods=["GET"])
@@ -721,24 +683,17 @@ def get_umap_plot(analysis_id):
     analysis_to_view = find_analysis_by_id(user_analyses, analysis_id)
 
     if not analysis_to_view:
-        current_app.logger.info(
-            f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'."
-        )
-        flash("No layout file found for this analysis.", "error")
-        return redirect(url_for("main_routes.index"))
+        return jsonify({"error": "Analysis not found."}), 404
 
     if analysis_to_view.get("status") != "Completed":
-        flash("PCA plot is not available until the analysis is completed.", "warning")
-        return redirect(url_for("main_routes.index"))
+        return jsonify({"error": "Analysis is not yet complete."}), 400
 
     return generate_scatter_plot_response(
         analysis_to_view,
-        CLUSTER_COL,
-        UMAP1_COL,
-        UMAP2_COL,
-        "UMAP Plot",
-        "UMAP1",
-        "UMAP2",
+        plot_type='umap',
+        plot_title="UMAP Plot",
+        xaxis_title=UMAP1_COL,
+        yaxis_title=UMAP2_COL
     )
 
 
@@ -750,24 +705,17 @@ def get_pca_plot(analysis_id):
     analysis_to_view = find_analysis_by_id(user_analyses, analysis_id)
 
     if not analysis_to_view:
-        current_app.logger.info(
-            f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'."
-        )
-        flash("No layout file found for this analysis.", "error")
-        return redirect(url_for("main_routes.index"))
+        return jsonify({"error": "Analysis not found."}), 404
 
     if analysis_to_view.get("status") != "Completed":
-        flash("PCA plot is not available until the analysis is completed.", "warning")
-        return redirect(url_for("main_routes.index"))
+        return jsonify({"error": "Analysis is not yet complete."}), 400
 
     return generate_scatter_plot_response(
         analysis_to_view,
-        CLUSTER_COL,
-        PCA1_COL,
-        PCA2_COL,
-        "PCA Plot",
-        "PCA1",
-        "PCA2",
+        plot_type='pca',
+        plot_title="PCA Plot",
+        xaxis_title=PCA1_COL,
+        yaxis_title=PCA2_COL
     )
 
 

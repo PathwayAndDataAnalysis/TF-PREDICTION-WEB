@@ -103,7 +103,7 @@ def run_umap_pipeline(
 
         # ------- Check for Ensembl IDs and map to gene symbols -------
         mapped = False
-        if adata.var.index.str.startswith("ENSG").mean() > 0.5:
+        if adata.var.index.str.startswith("ENSG").mean() > 0.3:  # More than 30% of var index starts with "ENSG"
             current_app.logger.info("[UMAP] Detected Ensembl IDs in var index. Converting to gene symbols.")
             common_names = ['gene_symbols', 'symbol', 'gene_name', 'symbols']
 
@@ -161,7 +161,7 @@ def run_umap_pipeline(
             sc.pp.filter_cells(adata, min_genes=data_filtering.get("min_genes", 0))
             current_app.logger.info(f"Shape after filtering cells: {adata.n_obs} cells × {adata.n_vars} genes")
             if adata.n_obs == 0:
-                update_status_fn(user_id, analysis_id, "No cells left after filtering. Please check your filter settings.",)
+                update_status_fn(user_id=user_id, analysis_id=analysis_id, status="Error", error="No cells left after filtering. Please check your filter settings.",)
                 raise ValueError("No cells left after filtering. Please check your filter settings.")
 
         # 2. Filter genes
@@ -170,7 +170,7 @@ def run_umap_pipeline(
             sc.pp.filter_genes(adata, min_cells=data_filtering.get("min_cells", 0))
             current_app.logger.info(f"Shape after filtering genes: {adata.n_obs} cells × {adata.n_vars} genes")
             if adata.n_vars == 0:
-                update_status_fn(user_id, analysis_id, "No genes left after filtering. Please check your filter settings.",)
+                update_status_fn(user_id=user_id, analysis_id=analysis_id, status="Error", error="No genes left after filtering. Please check your filter settings.",)
                 raise ValueError("No genes left after filtering. Please check your filter settings.")
 
         # 3. Filter on mitochondrial gene percentage (with species handling)
@@ -212,7 +212,7 @@ def run_umap_pipeline(
                     if adata.n_obs == 0:
                         current_app.logger.warning("  -> WARNING: All cells were removed by the mitochondrial filter. "
                                                    "Consider increasing the threshold or examining the data quality.")
-                        update_status_fn(user_id, analysis_id, "No cells left after mitochondrial filtering.",)
+                        update_status_fn(user_id=user_id, analysis_id=analysis_id, status="Error", error="No cells left after mitochondrial filtering.",)
                         raise ValueError("No cells left after mitochondrial filtering. Please check your filter settings.")
             else:
                 current_app.logger.info("   -> WARNING: Could not find mitochondrial genes. Skipping mitochondrial filtering step.")
@@ -226,8 +226,14 @@ def run_umap_pipeline(
         if data_filtering.get("log_transform"):
             current_app.logger.info("[UMAP] Applying log1p transformation.")
             sc.pp.log1p(adata)
-        current_app.logger.info(f"\nFinal processed data shape: {adata.shape}")
 
+        # # 6. Find Highly Variable Genes (Adding this crucial step)
+        # current_app.logger.info("[UMAP] Identifying highly variable genes.")
+        # sc.pp.highly_variable_genes(adata, min_mean=0.0125, max_mean=3, min_disp=0.5)
+        #
+        # # 7. Subset the object to only the highly variable genes
+        # adata = adata[:, adata.var.highly_variable]
+        # current_app.logger.info(f"[UMAP] Subset to {adata.n_vars} highly variable genes.")
 
         # -------- Dimensionality Reduction and UMAP --------
         if not have_2d_layout:
@@ -243,12 +249,11 @@ def run_umap_pipeline(
             sc.pp.neighbors(
                 adata,
                 n_neighbors=params.get("n_neighbors"),
-                use_rep='X_pca',  # Use PCA results as input
+                use_rep='X_pca',
                 metric=params.get("metric", "euclidean")
             )
 
-            current_app.logger.info(f"[UMAP] Running UMAP with min_dist={params.get('min_dist')}")
-            if params.get("random_state") is not None:
+            if params.get("random_state") is not None and params.get("random_state") != 0:
                 current_app.logger.info(f"[UMAP] Using random_state={params.get('random_state')} for reproducibility.")
                 sc.tl.umap(
                     adata,
@@ -256,50 +261,25 @@ def run_umap_pipeline(
                     random_state=params.get("random_state"),
                 )
             else:
-                current_app.logger.info("[UMAP] No random_state provided, using default.")
+                current_app.logger.info("[UMAP] No random_state provided, using random seed.")
                 sc.tl.umap(adata, min_dist=params.get("min_dist"))
 
-            # Save results
-            result_path = analysis_data["results_path"]
-            os.makedirs(result_path, exist_ok=True)
-            umap_df = pd.DataFrame(
-                adata.obsm["X_umap"], index=adata.obs_names, columns=["X_umap1", "X_umap2"]
-            )
-            if "X_pca" in adata.obsm:
-                umap_df["X_pca1"] = adata.obsm["X_pca"][:, 0]
-                umap_df["X_pca2"] = adata.obsm["X_pca"][:, 1]
-
-            if "Cluster" in adata.obs:
-                current_app.logger.info("[UMAP] Adding cluster labels from AnnData.obs.")
-                umap_df["Cluster"] = adata.obs["Cluster"]
-            else:
-                current_app.logger.info("[UMAP] No cluster labels found, assigning default value 0.")
-                umap_df["Cluster"] = 0  # or assign as needed
-
-            umap_csv_path = os.path.join(result_path, "umap_coordinates.csv")
-            current_app.logger.info(f"[UMAP] Saving UMAP coordinates to: {umap_csv_path}")
-            umap_df.to_csv(umap_csv_path)
-
             # Update status to Completed
-            update_status_fn(user_id=user_id, analysis_id=analysis_id, status="Completed", umap_csv_path=umap_csv_path, metadata_cols=metadata_cols)
+            update_status_fn(user_id=user_id, analysis_id=analysis_id, status="Completed", metadata_cols=metadata_cols)
             current_app.logger.info(f"[UMAP] UMAP pipeline completed successfully for analysis '{analysis_id}'.")
 
-        # 5. Run analysis function
+        # Run analysis function
         current_app.logger.info(f"[UMAP] Running analysis function for analysis '{analysis_id}'.")
 
-        try:
-            run_analysis_fn(
-                user_id=user_id,
-                analysis_id=analysis_id,
-                analysis_data=analysis_data,
-                adata=adata,
-                fdr_level=analysis_data["inputs"].get("fdr_level"),
-                update_analysis_status_fn=update_status_fn,
-            )
-        except Exception as e:
-            current_app.logger.error(f"[UMAP] Error in analysis function: {e}")
-            update_status_fn(user_id, analysis_id, "Failed", error=str(e))
-            raise e
+        run_analysis_fn(
+            user_id=user_id,
+            analysis_id=analysis_id,
+            analysis_data=analysis_data,
+            adata=adata,
+            fdr_level=analysis_data["inputs"].get("fdr_level"),
+            update_analysis_status_fn=update_status_fn,
+        )
+
 
     except FileNotFoundError as e:
         current_app.logger.error(f"[UMAP] File not found: {e}")
