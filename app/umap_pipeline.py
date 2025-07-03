@@ -161,7 +161,7 @@ def run_umap_pipeline(
             sc.pp.filter_cells(adata, min_genes=data_filtering.get("min_genes", 0))
             current_app.logger.info(f"Shape after filtering cells: {adata.n_obs} cells × {adata.n_vars} genes")
             if adata.n_obs == 0:
-                update_status_fn(user_id, analysis_id, "No cells left after filtering. Please check your filter settings.",)
+                update_status_fn(user_id=user_id, analysis_id=analysis_id, status="Error", error="No cells left after filtering. Please check your filter settings.")
                 raise ValueError("No cells left after filtering. Please check your filter settings.")
 
         # 2. Filter genes
@@ -170,7 +170,7 @@ def run_umap_pipeline(
             sc.pp.filter_genes(adata, min_cells=data_filtering.get("min_cells", 0))
             current_app.logger.info(f"Shape after filtering genes: {adata.n_obs} cells × {adata.n_vars} genes")
             if adata.n_vars == 0:
-                update_status_fn(user_id, analysis_id, "No genes left after filtering. Please check your filter settings.",)
+                update_status_fn(user_id=user_id, analysis_id=analysis_id, status="Error", error="No genes left after filtering. Please check your filter settings.")
                 raise ValueError("No genes left after filtering. Please check your filter settings.")
 
         # 3. Filter on mitochondrial gene percentage (with species handling)
@@ -212,7 +212,7 @@ def run_umap_pipeline(
                     if adata.n_obs == 0:
                         current_app.logger.warning("  -> WARNING: All cells were removed by the mitochondrial filter. "
                                                    "Consider increasing the threshold or examining the data quality.")
-                        update_status_fn(user_id, analysis_id, "No cells left after mitochondrial filtering.",)
+                        update_status_fn(user_id=user_id, analysis_id=analysis_id, status="Error", error="No cells left after mitochondrial filtering.")
                         raise ValueError("No cells left after mitochondrial filtering. Please check your filter settings.")
             else:
                 current_app.logger.info("   -> WARNING: Could not find mitochondrial genes. Skipping mitochondrial filtering step.")
@@ -248,7 +248,7 @@ def run_umap_pipeline(
             )
 
             current_app.logger.info(f"[UMAP] Running UMAP with min_dist={params.get('min_dist')}")
-            if params.get("random_state") is not None:
+            if params.get("random_state") is not None and params.get("random_state") != 0:
                 current_app.logger.info(f"[UMAP] Using random_state={params.get('random_state')} for reproducibility.")
                 sc.tl.umap(
                     adata,
@@ -259,22 +259,23 @@ def run_umap_pipeline(
                 current_app.logger.info("[UMAP] No random_state provided, using default.")
                 sc.tl.umap(adata, min_dist=params.get("min_dist"))
 
-            # Save results
+            # --- Save UMAP coordinates to results path
             result_path = analysis_data["results_path"]
             os.makedirs(result_path, exist_ok=True)
             umap_df = pd.DataFrame(
                 adata.obsm["X_umap"], index=adata.obs_names, columns=["X_umap1", "X_umap2"]
             )
+            # if "X_pca" in adata.obsm:
+            #     umap_df["X_pca1"] = adata.obsm["X_pca"][:, 0]
+            #     umap_df["X_pca2"] = adata.obsm["X_pca"][:, 1]
             if "X_pca" in adata.obsm:
-                umap_df["X_pca1"] = adata.obsm["X_pca"][:, 0]
-                umap_df["X_pca2"] = adata.obsm["X_pca"][:, 1]
+                umap_df = pd.concat(
+                    [umap_df,
+                     pd.DataFrame(adata.obsm["X_pca"][:, :2], index=adata.obs_names, columns=["X_pca1", "X_pca2"])],
+                    axis=1
+                )
 
-            if "Cluster" in adata.obs:
-                current_app.logger.info("[UMAP] Adding cluster labels from AnnData.obs.")
-                umap_df["Cluster"] = adata.obs["Cluster"]
-            else:
-                current_app.logger.info("[UMAP] No cluster labels found, assigning default value 0.")
-                umap_df["Cluster"] = 0  # or assign as needed
+            umap_df["Cluster"] = 0  # or assign as needed
 
             umap_csv_path = os.path.join(result_path, "umap_coordinates.csv")
             current_app.logger.info(f"[UMAP] Saving UMAP coordinates to: {umap_csv_path}")
