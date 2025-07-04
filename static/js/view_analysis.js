@@ -1,4 +1,3 @@
-// Use window.analysis for the analysis object
 console.log("Analysis object:", window.analysis);
 
 const defaultPointSize = 4;
@@ -34,41 +33,18 @@ const modal = document.getElementById("more-info-modal");
 const closeModalBtn = document.getElementById("close-modal-btn");
 
 const totalCells = document.getElementById("total-cells");
+const plotLoadingSpinner = document.getElementById("plot-loading-spinner")
 
 
 plotTypeSelect.addEventListener("change", function () {
-	if (this.value === "umap_plot") {  // UMAP Plot
-		console.log("UMAP plot selected");
-		const apiUrl = `/analysis/umap_plot/${window.analysis.id}`;
-		getPlotData(this.value, apiUrl)
-		.then(() => {
-			console.log("UMAP Plot loaded successfully.");
-		})
-		.catch((err) => {
-			console.error("Failed to load plot:", err);
-			alert("Failed to load plot. Please try again later.");
-		});
-	}
-	else {  // PCA Plot
-		console.log("PCA plot selected");
-		const apiUrl = `/analysis/pca_plot/${window.analysis.id}`;
-		getPlotData(this.value, apiUrl)
-		.then(() => {
-			console.log("PCA Plot loaded successfully.");
-
-			colorBySelect.value = "select_cluster_type";
-			tfNameSelect.value = "select_tf";
-			metadataColSelectionDiv.value = "select_metadata_column";
-			colorBySelect.dispatchEvent(new Event("change"));
-			tfSelectionDiv.dispatchEvent(new Event("change"));
-			metadataColSelectionDiv.dispatchEvent(new Event("change"));
-
-		})
-		.catch((err) => {
-			console.error("Failed to load plot:", err);
-			alert("Failed to load plot. Please try again later.");
-		});
-	}
+	const apiUrl = `/analysis/plot/${window.analysis.id}`;
+	getPlotData(apiUrl, "POST", {"plot_type": this.value})
+	.then(() => {
+		console.log("Plot loaded successfully.");
+	})
+	.catch((err) => {
+		alert("Failed to load plot. Please try again later.");
+	});
 });
 
 if (colorBySelect) {
@@ -159,24 +135,25 @@ function updatePlot(plot_data){
 			scrollZoom: true
 		});
 
-		plotTitle.textContent = plot_data.layout.title;
-		fdrLevel.value = plot_data.fdr_level;
+		if (plot_data.fdr_level)
+			fdrLevel.value = plot_data.fdr_level;
 
-		if(plot_data.p_value_threshold){
+		if (plot_data.layout.title)
+			plotTitle.textContent = plot_data.layout.title;
+
+		if(plot_data.p_value_threshold)
 			pValueThreshold.textContent = "p-value threshold: " + plot_data.p_value_threshold;
-		}
 
-	} else {
+	} else
 		throw new Error("Received data is not in the expected format.");
-	}
 }
 
 metadataColNameSelect.addEventListener("change", function () {
 	if (this.value !== "select_metadata_column") {
 		const apiUrl = `/analysis/metadata-cluster/${window.analysis.id}`;
 
-		getPlotData(
-			this.value, apiUrl,
+		updatePlotData(
+			apiUrl,
 			"POST",
 			{ selected_metadata_cluster: this.value, plot_type: plotTypeSelect.value }
 		).then(() => {
@@ -193,8 +170,8 @@ tfNameSelect.addEventListener("change", function () {
 	if (this.value !== "select_tf"){
 		const apiUrl = `/analysis/tf-activity/${window.analysis.id}`;
 
-		getPlotData(
-			this.value, apiUrl,
+		updatePlotData(
+			apiUrl,
 			"POST",
 			{ selected_tf: this.value, plot_type: plotTypeSelect.value }
 		).then(() => {
@@ -213,17 +190,17 @@ tfManualEntryInput.addEventListener("keypress", function (event) {
 		if (tf_name) {
 			const apiUrl = `/analysis/tf-activity/${window.analysis.id}`;
 
-			getPlotData(
-				tf_name, apiUrl,
+			updatePlotData(
+				apiUrl,
 				"POST",
 				{selected_tf: tf_name, plot_type: plotTypeSelect.value}
 			).then(() => {
 				console.log("TF activity plot loaded successfully.");
 			})
-				.catch((err) => {
-					console.error("Failed to load plot:", err);
-					alert("Failed to load plot. Please try again later.");
-				});
+			.catch((err) => {
+				console.error("Failed to load plot:", err);
+				alert("Failed to load plot. Please try again later.");
+			});
 		} else {
 			alert("Please enter a valid TF name.");
 		}
@@ -236,17 +213,17 @@ geneEntryInput.addEventListener("keypress", function (event) {
 		if (gene_name) {
 			const apiUrl = `/analysis/gene-expression/${window.analysis.id}`;
 
-			getPlotData(
-				gene_name, apiUrl,
+			updatePlotData(
+				apiUrl,
 				"POST",
 				{ selected_gene: gene_name, plot_type: plotTypeSelect.value }
 			).then(() => {
-				// console.log("Gene expression plot loaded successfully.");
+				console.log("Gene expression plot loaded successfully.");
 			})
-				.catch((err) => {
-					console.error("Failed to load plot:", err);
-					alert("Failed to load plot. Please try again later.");
-				});
+			.catch((err) => {
+				console.error("Failed to load plot:", err);
+				alert("Failed to load plot. Please try again later.");
+			});
 		} else {
 			alert("Please enter a valid gene name.");
 		}
@@ -282,7 +259,7 @@ if (showLegendCheckbox) {
 
 reRunFDRCorrectionButton.addEventListener("click", async function (e) {
 	try {
-		document.getElementById("plot-loading-spinner").style.display = "block";
+		plotLoadingSpinner.style.display = "block";
 		const response = await fetch(
 			`/analysis/re-run-fdr-correction/${window.analysis.id}`,
 			{
@@ -299,7 +276,7 @@ reRunFDRCorrectionButton.addEventListener("click", async function (e) {
 			alert("FDR correction re-run successfully. Reload the page to see the updated plot.");
 			window.location.reload();
 		}
-		document.getElementById("plot-loading-spinner").style.display = "none";
+		plotLoadingSpinner.style.display = "none";
 	}
 	catch (error) {
 		console.error("Error re-running FDR correction:", error);
@@ -320,70 +297,94 @@ if (plotConfigForm) {
 	});
 }
 
-// UMAP plot loading and rendering
-async function getPlotData(plot_type = "umap_plot", apiUrl, method = "GET", body = null) {
-	document.getElementById("plot-loading-spinner").style.display = "block";
+async function updatePlotData(apiUrl, method, body) {
+	plotLoadingSpinner.style.display = "block";
 
 	try {
+		// 1. Make the API request
 		const response = await fetch(apiUrl, {
 			method: method,
 			headers: { "Content-Type": "application/json" },
 			body: body ? JSON.stringify(body) : null,
 		});
 
-		let data;
-		try {
-			if (response.ok) {
-				data = await response.json();
-				updatePlot(data)
-			}
-			else {
-				data = await response.json();
-				alert(`Error: ${response.status} - ${data.error}`);
-			}
-		} catch (jsonError) {
-			if (!response.ok) {
-				throw new Error(
-					`Server returned status ${response.status}: ${response.statusText}. Response was not valid JSON.`
-				);
-			}
-			throw new Error(
-				`Successfully fetched, but response was not valid JSON. ${jsonError.message}`
-			);
-		}
+		// 2. Check for HTTP errors first. If the response is not ok, process the error and throw.
 		if (!response.ok) {
-			const errorMessage =
-				data?.error ||
-				`Failed to fetch plot data. Server responded with status ${response.status}.`;
+			let errorMessage = `HTTP error ${response.status}: ${response.statusText}`;
+			try {
+				const errorData = await response.json();
+				errorMessage = errorData.error || errorMessage;
+			} catch (e) {
+				alert("Failed to parse error response as JSON.");
+				console.warn("Failed to parse error response as JSON:", e);
+			}
 			throw new Error(errorMessage);
 		}
+
+		// Update coordinates and layout
+		const data = await response.json();
+		updatePlot(data);
 	} catch (error) {
-		console.error("Error in getPlotData:", error);
+		console.error("Error in updatePlotData:", error);
 		alert(`Error loading plot: ${error.message}`);
 	} finally {
-		document.getElementById("plot-loading-spinner").style.display = "none";
+		plotLoadingSpinner.style.display = "none";
 	}
 }
 
+async function getPlotData(apiUrl, method, body) {
+	plotLoadingSpinner.style.display = "block";
+
+	try {
+		// 1. Make the API request
+		const response = await fetch(apiUrl, {
+			method: method,
+			headers: { "Content-Type": "application/json" },
+			body: body ? JSON.stringify(body) : undefined,
+		});
+
+		// 2. Check for HTTP errors first. If the response is not ok, process the error and throw.
+		if (!response.ok) {
+			let errorMessage = `HTTP error ${response.status}: ${response.statusText}`;
+			try {
+				const errorData = await response.json();
+				errorMessage = errorData.error || errorMessage;
+			} catch (e) {
+				alert("Failed to parse error response as JSON.");
+				console.warn("Failed to parse error response as JSON:", e);
+			}
+			throw new Error(errorMessage);
+		}
+
+		const data = await response.json();
+
+		updatePlot(data);
+	} catch (error) {
+		console.error("Error loading plot data:", error);
+		alert(`Error loading plot: ${error.message}`);
+	} finally {
+		plotLoadingSpinner.style.display = "none";
+	}
+}
+
+
 document.addEventListener("DOMContentLoaded", function () {
 	getPlotData(
-		"umap_plot",
-		`/analysis/umap_plot/${window.analysis.id}`,
-		"GET"
+		`/analysis/plot/${window.analysis.id}`,
+		"POST",
+		{"plot_type": "umap_plot"}
 	)
-		.then(() => {
-			console.log("Plot loaded successfully.");
-		})
-		.catch((err) => {
-			console.error("Failed to load plot:", err);
-			alert("Failed to load plot. Please try again later.");
-		});
+	.then(() => {
+		console.log("Plot loaded successfully.");
+	})
+	.catch((err) => {
+		alert("Failed to load plot. Please try again later.");
+	});
 
 	window.addEventListener("resize", () => {
 		Plotly.Plots.resize("scatterPlot");
 	});
 
-	// Popup modal logic
     if (moreInfoBtn && modal && closeModalBtn) {
         moreInfoBtn.addEventListener("click", () => {
             modal.classList.remove("hidden");

@@ -183,7 +183,6 @@ def index():
 
         # Add the enriched data to the analysis dictionary
         analysis['display_inputs'] = display_inputs
-    # --- END: New Data Enrichment Step ---
 
     user_analyses_sorted = sorted(user_analyses, key=lambda x: x.get("created_at", ""), reverse=True)
 
@@ -610,51 +609,33 @@ def view_analysis(analysis_id):
     return render_template("view_analysis.html", analysis=analysis_to_view)
 
 
-def generate_scatter_plot_response(
-    analysis_to_view,
-    cluster_col,
-    x_col,
-    y_col,
-    plot_title,
-    xaxis_title,
-    yaxis_title,
-):
-    layout_filepath = (
-        analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filepath", "")
-    )
-
-    if not os.path.exists(layout_filepath):
-        current_app.logger.error(
-            f"Layout file '{layout_filepath}' not found for analysis_id '{analysis_to_view['id']}'."
-        )
-        flash(
-            "Layout file not found. Delete this analysis and create new analysis",
-            "error",
-        )
-        return redirect(url_for("main_routes.index"))
-
-    # Read the UMAP/PCA coordinates file
+def generate_scatter_plot_response(analysis_to_view, plot_type=None):
     try:
-        sep = infer_delimiter(layout_filepath)
-        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
-        required_columns = {cluster_col, x_col, y_col}
+        layout_filepath = (analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filepath", ""))
 
-        if not required_columns.issubset(plot_df.columns):
-            missing_cols = required_columns - set(plot_df.columns)
-            error_msg = (
-                f"Layout file missing required columns: {', '.join(missing_cols)}."
-            )
-            current_app.logger.error(f"{error_msg} File: {layout_filepath}")
-            flash(error_msg, "error")
-            return jsonify({"error": error_msg}), 400
+        if not os.path.exists(layout_filepath):
+            current_app.logger.error(f"Layout file '{layout_filepath}' not found!")
+            return jsonify({"error": "Layout file not found."}), 404
+
+        # Determine which coordinates to load
+        if plot_type == 'umap_plot':
+            column_names = [UMAP1_COL, UMAP2_COL]
+            plot_title = "UMAP Plot"
+        elif plot_type == 'pca_plot':
+            plot_title = "PCA Plot"
+            column_names = [PCA1_COL, PCA2_COL]
+        else:
+            return jsonify({"error": "Invalid plot type specified."}), 400
+
+        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=infer_delimiter(layout_filepath))
 
         traces = []
-        for cluster_label, group_df in plot_df.groupby(cluster_col):
+        for cluster_label, group_df in plot_df.groupby(CLUSTER_COL):
             traces.append(
                 {
                     "cluster": str(cluster_label),
-                    "x": group_df[x_col].tolist(),
-                    "y": group_df[y_col].tolist(),
+                    "x": group_df[column_names[0]].tolist(),
+                    "y": group_df[column_names[1]].tolist(),
                     "mode": "markers",
                     "type": "scattergl",
                     "name": str(cluster_label),
@@ -663,8 +644,8 @@ def generate_scatter_plot_response(
 
         layout = {
             "title": plot_title,
-            "xaxis": {"title": xaxis_title},
-            "yaxis": {"title": yaxis_title},
+            "xaxis": {"title": column_names[0]},
+            "yaxis": {"title": column_names[1]},
         }
 
         graph_data = {
@@ -672,223 +653,95 @@ def generate_scatter_plot_response(
             "layout": layout,
             "metadata_cols": analysis_to_view.get("metadata_cols", []),
             "tfs": analysis_to_view.get("tfs", []),
-            "fdr_level": analysis_to_view.get("inputs", {}).get("fdr_level", 0.05),
+            "fdr_level": analysis_to_view.get("inputs", {}).get("fdr_level"),
         }
         return jsonify(graph_data), 200
 
-    except pd.errors.EmptyDataError:
-        current_app.logger.error(f"UMAP/PCA file is empty: {layout_filepath}")
-        return jsonify({"error": "UMAP/PCA coordinates file is empty."}), 500
-
-    except pd.errors.ParserError as e:
-        current_app.logger.error(
-            f"Error parsing UMAP/PCA file: {layout_filepath}. Details: {e}"
-        )
-        return (
-            jsonify(
-                {"error": "Failed to parse UMAP/PCA coordinates file. Invalid format."}
-            ),
-            500,
-        )
-
-    except KeyError as e:
-        current_app.logger.error(
-            f"Missing expected column in UMAP/PCA file: {e}. File: {layout_filepath}",
-            exc_info=True,
-        )
-        return jsonify({"error": f"Data processing error: Missing column {e}."}), 500
-
     except Exception as e:
         current_app.logger.error(
-            f"Unexpected error processing UMAP/PCA file for analysis_id '{analysis_to_view['id']}': {e}",
+            f"Unexpected error for analysis_id '{analysis_to_view['id']}': {e}",
             exc_info=True,
         )
-        return (
-            jsonify(
-                {
-                    "error": "An unexpected error occurred while generating the UMAP/PCA plot."
-                }
-            ),
-            500,
-        )
+        return jsonify({"error": "An unexpected error occurred while preparing the plot."}), 500
 
 
-@main_bp.route("/analysis/umap_plot/<analysis_id>", methods=["GET"])
+@main_bp.route("/analysis/plot/<analysis_id>", methods=["POST"])
 @login_required
-def get_umap_plot(analysis_id):
+def get_plot(analysis_id):
     all_users_data = get_all_users_data()
     user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
     analysis_to_view = find_analysis_by_id(user_analyses, analysis_id)
 
     if not analysis_to_view:
-        current_app.logger.info(
-            f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'."
-        )
-        flash("No layout file found for this analysis.", "error")
-        return redirect(url_for("main_routes.index"))
+        return jsonify({"error": "Analysis not found."}), 404
 
     if analysis_to_view.get("status") != "Completed":
-        flash("PCA plot is not available until the analysis is completed.", "warning")
-        return redirect(url_for("main_routes.index"))
+        return jsonify({"error": "Analysis is not yet complete."}), 400
 
-    return generate_scatter_plot_response(
-        analysis_to_view,
-        CLUSTER_COL,
-        UMAP1_COL,
-        UMAP2_COL,
-        "UMAP Plot",
-        "UMAP1",
-        "UMAP2",
-    )
-
-
-@main_bp.route("/analysis/pca_plot/<analysis_id>", methods=["GET"])
-@login_required
-def get_pca_plot(analysis_id):
-    all_users_data = get_all_users_data()
-    user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
-    analysis_to_view = find_analysis_by_id(user_analyses, analysis_id)
-
-    if not analysis_to_view:
-        current_app.logger.info(
-            f"Analysis_id '{analysis_id}' not found for user_id '{current_user.id}'."
-        )
-        flash("No layout file found for this analysis.", "error")
-        return redirect(url_for("main_routes.index"))
-
-    if analysis_to_view.get("status") != "Completed":
-        flash("PCA plot is not available until the analysis is completed.", "warning")
-        return redirect(url_for("main_routes.index"))
-
-    return generate_scatter_plot_response(
-        analysis_to_view,
-        CLUSTER_COL,
-        PCA1_COL,
-        PCA2_COL,
-        "PCA Plot",
-        "PCA1",
-        "PCA2",
-    )
+    return generate_scatter_plot_response(analysis_to_view, plot_type=request.json.get("plot_type"))
 
 
 def get_layout_and_metadata_dfs(analysis, user_id):
     """Return plot_df and metadata_df for the given analysis."""
     layout_source = analysis.get("inputs", {}).get("layout", {}).get("source")
-    if layout_source == "file":
-        layout_file = (
-            analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
-        )
-        layout_filepath = get_file_path(layout_file, user_id)
-        sep = infer_delimiter(layout_filepath)
-        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
-        metadata_file = (
-            analysis.get("inputs", {})
-            .get("gene_expression", {})
-            .get("metadata_filepath")
-        )
-        metadata_df = pd.read_csv(get_file_path(metadata_file, user_id), index_col=0)
+
+    layout_filepath = analysis.get("inputs").get("layout").get("layout_filepath")
+    plot_df = pd.read_csv(layout_filepath, index_col=0, sep=infer_delimiter(layout_filepath))
+
+    if layout_source == "FILE":
+        metadata_filepath = analysis.get("inputs").get("gene_expression").get("metadata_filepath", {})
+        metadata_df = pd.read_csv(get_file_path(metadata_filepath, user_id), index_col=0, sep=infer_delimiter(metadata_filepath))
     else:
-        layout_filepath = (
-            analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
-        )
-        sep = infer_delimiter(layout_filepath)
-        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
-        h5ad_file = (
-            analysis.get("inputs", {}).get("gene_expression", {}).get("h5ad_filepath")
-        )
+        h5ad_file = analysis.get("inputs").get("gene_expression").get("h5ad_filepath")
         adata = sc.read_h5ad(get_file_path(h5ad_file, user_id))
         metadata_df = pd.DataFrame(adata.obs)
+
     return plot_df, metadata_df
 
 
 def get_layout_and_bh_reject_df(analysis, selected_tf_name):
     """Return plot_df, tfs_df, and p_value_threshold for the given analysis."""
-    layout_source = analysis.get("inputs", {}).get("layout", {}).get("source")
-    bh_reject_file = analysis.get("bh_reject_path", "")
-    bh_reject = pd.read_csv(bh_reject_file, index_col=0, low_memory=False)
+    bh_reject_path = analysis.get("bh_reject_path", "")
+    bh_reject = pd.read_csv(bh_reject_path, index_col=0, low_memory=False)
 
-    p_value_threshold_path = analysis.get("p_val_threshold_path")
-    p_val_threshold_series = pd.read_csv(p_value_threshold_path, index_col=0).iloc[:, 0]
+    p_val_threshold_series = pd.read_csv(analysis.get("p_val_threshold_path"), index_col=0).iloc[:, 0]
     p_val_threshold = p_val_threshold_series.get(selected_tf_name, None)
 
-    if layout_source == "file":
-        layout_filepath = (
-            analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
-        )
-        sep = infer_delimiter(layout_filepath)
-        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
-    else:
-        layout_filepath = (
-            analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
-        )
-        sep = infer_delimiter(layout_filepath)
-        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
+    layout_filepath = analysis.get("inputs").get("layout").get("layout_filepath")
+    plot_df = pd.read_csv(layout_filepath, index_col=0, sep=infer_delimiter(layout_filepath))
+
     return plot_df, bh_reject, p_val_threshold
 
 
 def get_layout_and_gene_exp_levels_df(analysis, gene_name):
     """Return plot_df and gene_exp_levels_df for the given analysis."""
-    layout_filepath = (
-        analysis.get("inputs", {}).get("layout", {}).get("layout_filepath")
-    )
-    z_score_filepath = analysis.get("z_scores_path", "")
-
-    if not os.path.exists(layout_filepath):
-        current_app.logger.error(
-            f"Layout file '{layout_filepath}' not found for analysis_id '{analysis['id']}'."
-        )
-        return (
-            jsonify(
-                {
-                    "error": "Layout file not found. Delete this analysis and create new analysis"
-                }
-            ),
-            404,
-        )
-    if not os.path.exists(z_score_filepath):
-        current_app.logger.error(
-            f"Z-scores file '{z_score_filepath}' not found for analysis_id '{analysis['id']}'."
-        )
-        return (
-            jsonify(
-                {
-                    "error": "Z-scores file not found. Delete this analysis and create new analysis"
-                }
-            ),
-            404,
-        )
     try:
-        sep = infer_delimiter(layout_filepath)
-        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=sep)
+        layout_filepath = (analysis.get("inputs").get("layout").get("layout_filepath"))
+        z_score_filepath = analysis.get("z_scores_path", "")
+
+        if not os.path.exists(layout_filepath):
+            current_app.logger.error(f"Layout file '{layout_filepath}' not found for analysis_id '{analysis['id']}'.")
+            return jsonify ({"error": "Layout file not found. Delete this analysis and create new analysis"}), 404
+
+        if not os.path.exists(z_score_filepath):
+            current_app.logger.error(f"Z-scores file '{z_score_filepath}' not found.")
+            return jsonify ({"error": "Z-scores file not found. Delete this analysis and create new analysis"}), 404
+
+        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=infer_delimiter(layout_filepath))
         z_scores_df = pd.read_csv(z_score_filepath, index_col=0)
 
         if gene_name not in z_scores_df.columns:
-            current_app.logger.error(
-                f"Gene '{gene_name}' not found in z-score data for analysis_id '{analysis['id']}'."
-            )
-            flash(f"Gene '{gene_name}' not found in z-score data.")
-            return (
-                jsonify({"error": f"Gene '{gene_name}' not found in z-score data."}),
-                400,
-            )
-        # Filter for the specific gene
+            current_app.logger.error(f"Gene '{gene_name}' not found in z-score.")
+            return jsonify({"error": f"Gene '{gene_name}' not found in z-score data."}), 400
+
         gene_exp_levels_df = z_scores_df[[gene_name]].copy()
         plot_df = plot_df.merge(gene_exp_levels_df, left_index=True, right_index=True)
-        # # Replace NaN values with 0 for plotting of gene_name column
-        # plot_df[gene_name] = plot_df[gene_name].fillna(0)
-        # Remove the rows if gene_name column has NaN values
         plot_df = plot_df.dropna(subset=[gene_name])
 
         return plot_df
-
     except Exception as e:
-        current_app.logger.error(
-            f"Error reading layout/z-score file for analysis_id '{analysis['id']}': {e}"
-        )
-        return (
-            jsonify({"error": "Failed to read layout/z-score file. Invalid format."}),
-            500,
-        )
+        current_app.logger.error(f"Error reading layout/z-score file for analysis_id '{analysis['id']}': {e}")
+        return  jsonify({"error": "Failed to read layout/z-score file. Invalid format."}), 500
 
 
 def generate_colored_traces(
@@ -950,57 +803,35 @@ def generate_colored_traces(
 @main_bp.route("/analysis/metadata-cluster/<analysis_id>", methods=["POST"])
 @login_required
 def get_metadata_color_by(analysis_id):
-    current_app.logger.info(
-        f"Request to color by metadata for analysis_id={analysis_id} by user={current_user.id}"
-    )
-    all_users_data = get_all_users_data()
-    user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
-    analysis = find_analysis_by_id(user_analyses, analysis_id)
-
-    if not analysis:
-        current_app.logger.warning(
-            f"Analysis not found: analysis_id={analysis_id} for user={current_user.id}"
-        )
-        return jsonify({"error": "Analysis not found."}), 404
-    if analysis.get("status") != "Completed":
-        current_app.logger.info(
-            f"Analysis not completed yet: analysis_id={analysis_id} for user={current_user.id}"
-        )
-        return jsonify({"error": "Analysis is not completed yet."}), 400
-
-    metadata_cluster = request.json.get("selected_metadata_cluster", "").strip()
-    plot_type = request.json.get("plot_type", "").strip()
-    current_app.logger.debug(
-        f"Received metadata_cluster='{metadata_cluster}', plot_type='{plot_type}' for analysis_id={analysis_id}"
-    )
-    if not metadata_cluster:
-        current_app.logger.warning(
-            f"No metadata column provided in request for analysis_id={analysis_id}"
-        )
-        return jsonify({"error": "Metadata column is required."}), 400
-
-    metadata_cols = analysis.get("metadata_cols", [])
-    if metadata_cluster not in metadata_cols:
-        current_app.logger.warning(
-            f"Requested metadata column '{metadata_cluster}' not found in metadata_cols for analysis_id={analysis_id}"
-        )
-        return (
-            jsonify({"error": f"Metadata column '{metadata_cluster}' not found."}),
-            400,
-        )
-
     try:
+        all_users_data = get_all_users_data()
+        user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
+        analysis = find_analysis_by_id(user_analyses, analysis_id)
+
+        if not analysis:
+            current_app.logger.error(f"Analysis not found: analysis_id={analysis_id}")
+            return jsonify({"error": "Analysis not found."}), 404
+        if analysis.get("status") != "Completed":
+            current_app.logger.warning(f"Analysis not completed yet: analysis_id={analysis_id}")
+            return jsonify({"error": "Analysis is not completed yet."}), 400
+
+        metadata_cluster = request.json.get("selected_metadata_cluster", "").strip()
+        plot_type = request.json.get("plot_type", "").strip()
+
+        current_app.logger.debug(
+            f"Received metadata_cluster='{metadata_cluster}', plot_type='{plot_type}' for analysis_id={analysis_id}"
+        )
+
+        metadata_cols = analysis.get("metadata_cols", [])
+        if metadata_cluster not in metadata_cols:
+            current_app.logger.warning(f"Requested metadata column '{metadata_cluster}' not found.")
+            return jsonify({"error": f"Metadata column '{metadata_cluster}' not found."}), 400
+
         plot_df, metadata_df = get_layout_and_metadata_dfs(analysis, current_user.id)
         if metadata_cluster not in metadata_df.columns:
-            current_app.logger.warning(
-                f"Metadata column '{metadata_cluster}' not found in metadata_df columns for analysis_id={analysis_id}"
-            )
+            current_app.logger.warning(f"Metadata column '{metadata_cluster}' not found.")
             return (
-                jsonify(
-                    {
-                        "error": f"Metadata column '{metadata_cluster}' not found in metadata file."
-                    }
-                ),
+                jsonify({"error": f"Metadata column '{metadata_cluster}' not found in metadata file."}),
                 400,
             )
 
@@ -1008,9 +839,7 @@ def get_metadata_color_by(analysis_id):
         if "Cluster" in plot_df.columns:
             plot_df = plot_df.drop(columns=["Cluster"])
         # Merge plot_df with metadata_df on index
-        plot_df = plot_df.merge(
-            metadata_df[[metadata_cluster]], left_index=True, right_index=True
-        )
+        plot_df = plot_df.merge(metadata_df[[metadata_cluster]], left_index=True, right_index=True)
         plot_df = plot_df.rename(columns={metadata_cluster: "Cluster"})
         plot_df["Cluster"] = plot_df["Cluster"].astype(str)
 
@@ -1025,14 +854,8 @@ def get_metadata_color_by(analysis_id):
         }
         graph_data = {
             "data": traces,
-            "layout": layout,
-            "metadata_cols": metadata_cols,
-            "tfs": analysis.get("tfs", []),
-            "fdr_level": analysis.get("inputs", {}).get("fdr_level", 0.05),
+            "layout": layout
         }
-        current_app.logger.info(
-            f"Successfully generated colored plot for analysis_id={analysis_id}, metadata_cluster='{metadata_cluster}', plot_type='{plot_type}'"
-        )
         return jsonify(graph_data), 200
 
     except Exception as e:
@@ -1046,59 +869,31 @@ def get_metadata_color_by(analysis_id):
 @main_bp.route("/analysis/tf-activity/<analysis_id>", methods=["POST"])
 @login_required
 def get_tf_color_by(analysis_id):
-    current_app.logger.info(
-        f"Request to color by TF activity for analysis_id={analysis_id} by user={current_user.id}"
-    )
-    all_users_data = get_all_users_data()
-    user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
-    analysis = find_analysis_by_id(user_analyses, analysis_id)
-
-    if not analysis:
-        current_app.logger.warning(
-            f"Analysis not found: analysis_id={analysis_id} for user={current_user.id}"
-        )
-        return jsonify({"error": "Analysis not found."}), 404
-    if analysis.get("status") != "Completed":
-        current_app.logger.info(
-            f"Analysis not completed yet: analysis_id={analysis_id} for user={current_user.id}"
-        )
-        return jsonify({"error": "Analysis is not completed yet."}), 400
-
-    selected_tf_name = request.json.get("selected_tf", "").strip()
-    plot_type = request.json.get("plot_type", "").strip()
-    current_app.logger.debug(
-        f"Received TF activity='{selected_tf_name}', plot_type='{plot_type}' for analysis_id={analysis_id}"
-    )
-    if not selected_tf_name:
-        current_app.logger.warning(
-            f"No TF activity provided in request for analysis_id={analysis_id}"
-        )
-        return jsonify({"error": "TF activity is required."}), 400
-
-    tfs = analysis.get("tfs", [])
-    if selected_tf_name not in tfs:
-        current_app.logger.warning(
-            f"Requested TF activity '{selected_tf_name}' not found in tfs for analysis_id={analysis_id}"
-        )
-        return (
-            jsonify({"error": f"TF activity '{selected_tf_name}' not found."}),
-            400,
-        )
-
     try:
+        all_users_data = get_all_users_data()
+        user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
+        analysis = find_analysis_by_id(user_analyses, analysis_id)
+
+        if not analysis:
+            current_app.logger.error(f"Analysis not found: analysis_id={analysis_id}")
+            return jsonify({"error": "Analysis not found."}), 404
+        if analysis.get("status") != "Completed":
+            current_app.logger.warning(f"Analysis not completed yet: analysis_id={analysis_id}")
+            return jsonify({"error": "Analysis is not completed yet."}), 400
+
+        selected_tf_name = request.json.get("selected_tf", "").strip()
+        plot_type = request.json.get("plot_type", "").strip()
+        current_app.logger.debug(f"Received TF activity='{selected_tf_name}', plot_type='{plot_type}'.")
+
+        tfs = analysis.get("tfs", [])
+        if selected_tf_name not in tfs:
+            current_app.logger.error(f"Requested TF activity '{selected_tf_name}' not found.")
+            return jsonify({"error": f"TF activity '{selected_tf_name}' not found."}), 400
+
         plot_df, bh_reject, p_value_threshold = get_layout_and_bh_reject_df(analysis, selected_tf_name)
         if selected_tf_name not in bh_reject.columns:
-            current_app.logger.warning(
-                f"TF activity '{selected_tf_name}' not found in BH reject columns for analysis_id={analysis_id}"
-            )
-            return (
-                jsonify(
-                    {
-                        "error": f"TF activity '{selected_tf_name}' not found in BH reject file."
-                    }
-                ),
-                400,
-            )
+            current_app.logger.error(f"TF activity '{selected_tf_name}' not found in BH reject.")
+            return jsonify({"error": f"TF activity '{selected_tf_name}' not found in BH reject file."}), 400
 
         plot_df = plot_df.merge(
             bh_reject[selected_tf_name].astype(object), left_index=True, right_index=True
@@ -1106,67 +901,48 @@ def get_tf_color_by(analysis_id):
         traces, title, x_col, y_col = generate_colored_traces(
             plot_df=plot_df,
             plot_type=plot_type,
-            tf_activity=selected_tf_name,
+            tf_activity=selected_tf_name
         )
         layout = {
             "title": title,
             "xaxis": {"title": x_col},
-            "yaxis": {"title": y_col},
+            "yaxis": {"title": y_col}
         }
         graph_data = {
             "data": traces,
             "layout": layout,
-            "metadata_cols": analysis.get("metadata_cols", []),
-            "tfs": analysis.get("tfs", []),
-            "fdr_level": analysis.get("inputs", {}).get("fdr_level", 0.05),
-            "p_value_threshold": p_value_threshold,
+            "p_value_threshold": p_value_threshold
         }
-        current_app.logger.info(
-            f"Successfully generated colored plot for analysis_id={analysis_id}, selected_tf_name='{selected_tf_name}', plot_type='{plot_type}'"
-        )
-        return jsonify(graph_data), 200
 
+        return jsonify(graph_data), 200
     except Exception as e:
-        current_app.logger.error(
-            f"Error in get_tf_color_by for analysis_id={analysis_id}, selected_tf_name='{selected_tf_name}', plot_type='{plot_type}': {e}",
-            exc_info=True,
-        )
+        current_app.logger.error(f"Error in get_tf_color_by for analysis_id={analysis_id}': {e}", exc_info=True)
         return jsonify({"error": "Internal server error."}), 500
 
 
 @main_bp.route("/analysis/gene-expression/<analysis_id>", methods=["POST"])
 @login_required
 def get_gene_expression_color_by(analysis_id):
-    current_app.logger.info(
-        f"Request to color by gene expression for analysis_id={analysis_id} by user={current_user.id}"
-    )
-    all_users_data = get_all_users_data()
-    user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
-    analysis = find_analysis_by_id(user_analyses, analysis_id)
-
-    if not analysis:
-        current_app.logger.warning(
-            f"Analysis not found: analysis_id={analysis_id} for user={current_user.id}"
-        )
-        return jsonify({"error": "Analysis not found."}), 404
-    if analysis.get("status") != "Completed":
-        current_app.logger.info(
-            f"Analysis not completed yet: analysis_id={analysis_id} for user={current_user.id}"
-        )
-        return jsonify({"error": "Analysis is not completed yet."}), 400
-
-    gene_name = request.json.get("selected_gene", "").strip()
-    plot_type = request.json.get("plot_type", "").strip()
-    current_app.logger.debug(
-        f"Received gene_name='{gene_name}', plot_type='{plot_type}' for analysis_id={analysis_id}"
-    )
-    if not gene_name:
-        current_app.logger.warning(
-            f"No gene expression provided in request for analysis_id={analysis_id}"
-        )
-        return jsonify({"error": "Gene expression is required."}), 400
-
     try:
+        all_users_data = get_all_users_data()
+        user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
+        analysis = find_analysis_by_id(user_analyses, analysis_id)
+
+        if not analysis:
+            current_app.logger.warning(f"Analysis not found: analysis_id={analysis_id}")
+            return jsonify({"error": "Analysis not found."}), 404
+        if analysis.get("status") != "Completed":
+            current_app.logger.info(f"Analysis not completed yet: analysis_id={analysis_id}")
+            return jsonify({"error": "Analysis is not completed yet."}), 400
+
+        gene_name = request.json.get("selected_gene", "").strip()
+        plot_type = request.json.get("plot_type", "").strip()
+
+        current_app.logger.debug(f"Received gene_name='{gene_name}', plot_type='{plot_type}' for analysis_id={analysis_id}")
+        if not gene_name:
+            current_app.logger.warning(f"No gene expression provided in request for analysis_id={analysis_id}")
+            return jsonify({"error": "Gene expression is required."}), 400
+
         plot_df = get_layout_and_gene_exp_levels_df(analysis, gene_name)
 
         title = ""
@@ -1191,7 +967,6 @@ def get_gene_expression_color_by(analysis_id):
                 "colorbar": {"title": gene_name},
             },
         }
-
         layout = {
             "title": title,
             "xaxis": {"title": x_col},
@@ -1200,15 +975,8 @@ def get_gene_expression_color_by(analysis_id):
         graph_data = {
             "data": [traces],
             "layout": layout,
-            "metadata_cols": analysis.get("metadata_cols", []),
-            "tfs": analysis.get("tfs", []),
-            "fdr_level": analysis.get("inputs", {}).get("fdr_level", 0.05),
         }
-        current_app.logger.info(
-            f"Successfully generated colored plot for analysis_id={analysis_id}, gene_name='{gene_name}', plot_type='{plot_type}'"
-        )
         return jsonify(graph_data), 200
-
     except Exception as e:
         current_app.logger.error(
             f"Error in get_gene_expression_color_by for analysis_id={analysis_id}, gene_name='{gene_name}', plot_type='{plot_type}': {e}",
