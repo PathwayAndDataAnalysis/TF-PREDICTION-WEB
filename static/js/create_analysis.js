@@ -85,23 +85,6 @@ function renderHistogram(divElement, data, title, xtitle, ytitle) {
 	});
 }
 
-function addInputValidation(inputId, min, max=null) {
-    const input = document.getElementById(inputId);
-    if (!input) return;
-    input.addEventListener("input", function () {
-        let value = parseInt(this.value, 10);
-
-        if (isNaN(value)) {
-            this.value = "";
-            return;
-        }
-        if (value < min) this.value = min;
-		if (max !== null && value > max) {
-			this.value = max;
-		}
-    });
-}
-
 document.addEventListener("DOMContentLoaded", function () {
 	toggleH5adSection();
 	toggleLayoutSection();
@@ -278,7 +261,8 @@ document.addEventListener("DOMContentLoaded", function () {
 	addInputValidation("pca_components", 2);
 	addInputValidation("n_neighbors", 2);
 	addInputValidation("min_dist", 0.0, 1.0);
-	addInputValidation("random-state", 0, 2147483647);
+	addInputValidation("random-state", 0);
+	addInputValidation("fdr_level",0.0, 1.0);
 
 
 	// Reusable tooltip logic for all info buttons

@@ -12,8 +12,7 @@ from tqdm.auto import tqdm
 import psutil
 import gc
 
-from app.benjamini_hotchberg import bh_fdr_correction
-
+from app.benjamini_hotchberg import bh_fdr_correction, run_bh_and_save_files
 
 # CORES_USED = 1 # For debugging, use a single core
 CORES_USED = max(1, int(os.cpu_count() * 0.8))  # Use 80% of available cores
@@ -236,43 +235,17 @@ def run_tf_analysis(user_id, analysis_id, analysis_data, adata, fdr_level, updat
 
 
             # ───── Run Benjamini Hochberg FDR Correction ────────────────────────────────
-            update_analysis_status_fn(
+            run_bh_and_save_files(
                 user_id=user_id,
                 analysis_id=analysis_id,
-                status="Running BH FDR correction",
-                pvalues_path=p_values_path,
-                activation_path=activation_path,
-            )
-            print("Running Benjamini-Hochberg FDR correction...")
-            _, reject, p_val_thresholds_series = bh_fdr_correction(p_value_df=p_values_df, alpha=fdr_level)
-            p_val_thresholds_series.fillna(0, inplace=True)
-            tf_counts = reject.sum().sort_values(ascending=False)
-
-            final_output = pd.DataFrame(0, index=reject.index, columns=reject.columns)
-            # Where the rejection is True, fill in the direction from activation_df
-            final_output[reject] = activation_df[reject]
-
-            # Propagate NaNs for cells/TFs where analysis couldn't be run
-            final_output[p_values_df.isna()] = np.nan
-            final_output = final_output.astype("Int64")  # Use a nullable integer type
-
-            bh_reject_path = os.path.join(result_path, "bh_reject.csv")
-            print(f"Saving FDR results to {bh_reject_path}...")
-            final_output.to_csv(bh_reject_path, index=True)
-
-            p_val_threshold_path = os.path.join(result_path, "p_val_thresholds.csv")
-            print(f"Saving p-value thresholds to {p_val_threshold_path}...")
-            p_val_thresholds_series.to_csv(p_val_threshold_path, index=True)
-
-            update_analysis_status_fn(
-                user_id=user_id,
-                analysis_id=analysis_id,
-                status="Completed",
-                tfs=tf_counts.index.tolist() if(tf_counts.index.tolist()) else [],
-                bh_reject_path=bh_reject_path,
+                p_values_df=p_values_df,
+                activation_df=activation_df,
+                result_path=result_path,
                 fdr_level=fdr_level,
-                p_val_threshold_path=p_val_threshold_path,
-                z_scores_path=z_scores_path
+                update_analysis_status_fn=update_analysis_status_fn,
+                p_values_path=p_values_path,
+                activation_path=activation_path,
+                z_scores_path=z_scores_path,
             )
         finally:
             memory_thread.join(timeout=1)

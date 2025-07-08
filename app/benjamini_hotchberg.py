@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pandas as pd
 from statsmodels.stats.multitest import multipletests
@@ -46,3 +48,57 @@ def bh_fdr_correction(
 
     thresholds_seris = pd.Series(thresholds, dtype=float)
     return df_adjusted_pvals, df_reject_status, thresholds_seris
+
+
+def run_bh_and_save_files(
+        user_id,
+        analysis_id,
+        p_values_df: pd.DataFrame,
+        activation_df: pd.DataFrame,
+        result_path: str,
+        fdr_level: float,
+        update_analysis_status_fn: callable,
+        p_values_path: str = None,
+        activation_path: str = None,
+        z_scores_path: str = None,
+):
+    update_analysis_status_fn(
+        user_id=user_id,
+        analysis_id=analysis_id,
+        status="Running BH FDR correction",
+        pvalues_path=p_values_path,
+        activation_path=activation_path,
+    )
+    print("Running Benjamini-Hochberg FDR correction...")
+    _, reject, p_val_thresholds = bh_fdr_correction(p_value_df=p_values_df, alpha=fdr_level)
+    p_val_thresholds = p_val_thresholds.dropna()
+    p_val_thresholds = pd.DataFrame({ "p_thresholds": p_val_thresholds, "fdr": fdr_level })
+    tf_counts = reject.sum().sort_values(ascending=False)
+    tf_counts = tf_counts[tf_counts > 0]  # Keep only TFs with at least one rejection
+
+    final_output = pd.DataFrame(0, index=reject.index, columns=reject.columns)
+    # Where the rejection is True, fill in the direction from activation_df
+    final_output[reject] = activation_df[reject]
+
+    # Propagate NaNs for cells/TFs where analysis couldn't be run
+    final_output[p_values_df.isna()] = np.nan
+    final_output = final_output.astype("Int64")  # Use a nullable integer type
+
+    bh_reject_path = os.path.join(result_path, "bh_reject.csv")
+    print(f"Saving FDR results to {bh_reject_path}...")
+    final_output.to_csv(bh_reject_path, index=True)
+
+    p_val_threshold_path = os.path.join(result_path, "p_val_thresholds.csv")
+    print(f"Saving p-value thresholds to {p_val_threshold_path}")
+    p_val_thresholds.to_csv(p_val_threshold_path, index=True, index_label="TF")
+
+    update_analysis_status_fn(
+        user_id=user_id,
+        analysis_id=analysis_id,
+        status="Completed",
+        tfs=tf_counts.index.tolist() if (tf_counts.index.tolist()) else [],
+        bh_reject_path=bh_reject_path,
+        fdr_level=fdr_level,
+        p_val_threshold_path=p_val_threshold_path,
+        z_scores_path=z_scores_path
+    )

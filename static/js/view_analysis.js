@@ -27,16 +27,52 @@ const fdrLevel = document.getElementById("fdr-level");
 const pValueThresholdDiv = document.getElementById("p-val-threshold-div");
 const pValueThreshold = document.getElementById("p-val-threshold");
 const reRunFDRCorrectionButton = document.getElementById("re-run-fdr-correction");
-
+const changePValueThreshold = document.getElementById("change-p-value-threshold");
 const moreInfoBtn = document.getElementById("more-info-btn");
 const modal = document.getElementById("more-info-modal");
 const closeModalBtn = document.getElementById("close-modal-btn");
-
 const totalCells = document.getElementById("total-cells");
 const plotLoadingSpinner = document.getElementById("plot-loading-spinner")
+const changeThresholdTypeDiv = document.getElementById("change-threshold-type-div")
+const fdrCorrectionRadio = document.getElementById("fdr-correction-radio")
+const pValueThresholdRadio = document.getElementById("p-value-threshold-radio")
 
+
+function clearAllSelections() {
+	if (colorBySelect)
+		colorBySelect.value = "select_cluster_type";
+	if (metadataColNameSelect){
+		metadataColNameSelect.value = "select_metadata_column";
+		metadataColSelectionDiv.classList.add("hidden");
+	}
+	if (tfNameSelect) {
+		tfNameSelect.value = "select_tf";
+		tfSelectionDiv.classList.add("hidden");
+		changeThresholdTypeDiv.classList.add("hidden");
+	}
+	if (tfManualEntryInput) {
+		tfManualEntryInput.value = "";
+		tfManualEntryDiv.classList.add("hidden");
+	}
+	if (geneEntryInput) {
+		geneEntryInput.value = "";
+		geneEntryDiv.classList.add("hidden");
+		colorScaleSelectionDiv.classList.add("hidden");
+	}
+	if (pointSizeSlider)
+		pointSizeSlider.value = defaultPointSize;
+	if (opacitySlider)
+		opacitySlider.value = defaultOpacity;
+	if (fdrLevel)
+		fdrLevel.value = "";
+	if (pValueThreshold)
+		pValueThreshold.value = "";
+}
 
 plotTypeSelect.addEventListener("change", function () {
+
+	clearAllSelections();
+
 	const apiUrl = `/analysis/plot/${window.analysis.id}`;
 	getPlotData(apiUrl, "POST", {"plot_type": this.value})
 	.then(() => {
@@ -56,7 +92,11 @@ if (colorBySelect) {
 			geneEntryDiv.classList.add("hidden");
 			colorScaleSelectionDiv.classList.add("hidden");
 			fdrLevelDiv.classList.remove("hidden");
-			pValueThresholdDiv.classList.remove("hidden");
+			changeThresholdTypeDiv.classList.remove("hidden");
+
+			// Clear selections
+			metadataColNameSelect.value = "select_metadata_column";
+			geneEntryInput.value = "";
 		}
 		else if (this.value === "metadata_columns") {
 			tfSelectionDiv.classList.add("hidden");
@@ -65,7 +105,15 @@ if (colorBySelect) {
 			geneEntryDiv.classList.add("hidden");
 			colorScaleSelectionDiv.classList.add("hidden");
 			fdrLevelDiv.classList.add("hidden");
-			pValueThresholdDiv.classList.add("hidden");
+			changeThresholdTypeDiv.classList.add("hidden");
+
+			// Clear selections
+			tfNameSelect.value = "select_tf";
+			tfManualEntryInput.value = "";
+			fdrLevel.value = "";
+			pValueThreshold.value = "";
+			geneEntryInput.value = "";
+
 		}
 		else if (this.value === "gene_expression") {
 			geneEntryDiv.classList.remove("hidden");
@@ -74,7 +122,14 @@ if (colorBySelect) {
 			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
 			fdrLevelDiv.classList.add("hidden");
-			pValueThresholdDiv.classList.add("hidden");
+			changeThresholdTypeDiv.classList.add("hidden");
+
+			// Clear selections
+			tfNameSelect.value = "select_tf";
+			tfManualEntryInput.value = "";
+			fdrLevel.value = "";
+			pValueThreshold.value = "";
+			metadataColNameSelect.value = "select_metadata_column";
 		}
 		else {
 			geneEntryDiv.classList.add("hidden");
@@ -83,7 +138,7 @@ if (colorBySelect) {
 			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
 			fdrLevelDiv.classList.add("hidden");
-			pValueThresholdDiv.classList.add("hidden");
+			changeThresholdTypeDiv.classList.add("hidden");
 		}
 	});
 }
@@ -92,7 +147,7 @@ function updatePlot(plot_data){
 	if (plot_data.data && plot_data.layout) {
 		total_cells = plot_data.data.reduce((acc, trace) => acc + (trace.x ? trace.x.length : 0), 0);
 		totalCells.textContent = `Total Cells: ${total_cells}`;
-		console.log(plot_data.data);
+		console.log(plot_data);
 
 		plot_data.layout.dragmode = "pan"; // Set default to pan
 		plot_data.layout.hovermode = "closest"; // Set default hover mode
@@ -138,13 +193,17 @@ function updatePlot(plot_data){
 		if (plot_data.fdr_level)
 			fdrLevel.value = plot_data.fdr_level;
 
+		if (plot_data.p_value_threshold)
+			pValueThreshold.value = plot_data.p_value_threshold;
+
 		if (plot_data.layout.title)
 			plotTitle.textContent = plot_data.layout.title;
 
 		if(plot_data.p_value_threshold)
-			pValueThreshold.textContent = "p-value threshold: " + plot_data.p_value_threshold;
+			pValueThreshold.value = plot_data.p_value_threshold;
 
-	} else
+	}
+	else
 		throw new Error("Received data is not in the expected format.");
 }
 
@@ -284,6 +343,34 @@ reRunFDRCorrectionButton.addEventListener("click", async function (e) {
 	}
 });
 
+changePValueThreshold.addEventListener("click", async function (e) {
+	try {
+		plotLoadingSpinner.style.display = "block";
+		const response = await fetch(
+			`/analysis/change-p-value-threshold/${window.analysis.id}`,
+			{
+				method: "POST",
+				headers: {"Content-Type": "application/json"},
+				body: JSON.stringify({p_value_threshold: pValueThreshold.value})
+			}
+		);
+		if (!response.ok) {
+			alert(
+				`Failed to change p-value threshold. Server responded with status ${response.status}.`
+			)
+		}else{
+			alert("P-value threshold changed successfully. Reload the page to see the updated plot.");
+			window.location.reload();
+		}
+		plotLoadingSpinner.style.display = "none";
+	}
+	catch (error) {
+		console.error("Error changing p-value threshold:", error);
+		alert("Failed to change p-value threshold. Please try again later.");
+	}
+});
+
+
 if (plotConfigForm) {
 	plotConfigForm.addEventListener("submit", function (event) {
 		event.preventDefault();
@@ -367,8 +454,11 @@ async function getPlotData(apiUrl, method, body) {
 	}
 }
 
-
 document.addEventListener("DOMContentLoaded", function () {
+
+	addInputValidation("fdr-level",0.0, 1.0);
+	addInputValidation("p-val-threshold",0.0, 1.0);
+
 	getPlotData(
 		`/analysis/plot/${window.analysis.id}`,
 		"POST",
@@ -403,5 +493,21 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
     }
+
+	if (fdrCorrectionRadio && pValueThresholdRadio) {
+		fdrCorrectionRadio.addEventListener("change", function () {
+			if (this.checked) {
+				fdrLevelDiv.classList.remove("hidden");
+				pValueThresholdDiv.classList.add("hidden");
+			}
+		});
+
+		pValueThresholdRadio.addEventListener("change", function () {
+			if (this.checked) {
+				fdrLevelDiv.classList.add("hidden");
+				pValueThresholdDiv.classList.remove("hidden");
+			}
+		});
+	}
 
 });

@@ -183,6 +183,7 @@ def update_analysis_status(
     activation_path=None,
     bh_reject_path=None,
     fdr_level=None,
+    p_value_threshold=None,
     p_val_threshold_path=None,
     z_scores_path=None,
     error=None,
@@ -214,8 +215,15 @@ def update_analysis_status(
                     analysis["activation_path"] = activation_path
                 if bh_reject_path:
                     analysis["bh_reject_path"] = bh_reject_path
-                if fdr_level:
-                    analysis.get("inputs", {})["fdr_level"] = fdr_level
+                if p_value_threshold or fdr_level:
+                    if p_value_threshold:
+                        analysis.get("inputs")["p_value_threshold"] = p_value_threshold
+                        if "fdr_level" in analysis.get("inputs", {}):
+                            del analysis["inputs"]["fdr_level"]
+                    else:
+                        analysis["inputs"]["fdr_level"] = fdr_level
+                        if "p_value_threshold" in analysis.get("inputs", {}):
+                            del analysis["inputs"]["p_value_threshold"]
                 if p_val_threshold_path:
                     analysis["p_val_threshold_path"] = p_val_threshold_path
                 if z_scores_path:

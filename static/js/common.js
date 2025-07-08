@@ -15,3 +15,20 @@ document.addEventListener("DOMContentLoaded", function () {
 	});
 
 });
+
+function addInputValidation(inputId, min, max=null) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.addEventListener("input", function () {
+        let value = parseInt(this.value, 10);
+
+        if (isNaN(value)) {
+            this.value = "";
+            return;
+        }
+        if (value < min) this.value = min;
+		if (max !== null && value > max) {
+			this.value = max;
+		}
+    });
+}

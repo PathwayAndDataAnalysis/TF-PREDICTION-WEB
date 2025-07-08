@@ -49,12 +49,10 @@
 
                                         <div class="text-xs text-gray-500 mt-1" style="max-width: 250px;">
                                             {% if desc_len > max_len %}
-                                                {# Display truncated text and the 'See more' button #}
                                                 <span class="description-short">{{ file_info.description[:max_len] }}...</span>
                                                 <span class="description-full hidden whitespace-normal">{{ file_info.description }}</span>
                                                 <button class="see-more-btn text-blue-600 hover:underline text-xs ml-1">See more</button>
                                             {% else %}
-                                                {# Display the full description if it's short #}
                                                 <span>{{ file_info.description }}</span>
                                             {% endif %}
                                         </div>

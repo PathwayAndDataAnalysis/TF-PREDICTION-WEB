@@ -256,33 +256,73 @@ block content %}
                         </div>
                     </div>
 
-                    <div id="fdr-level-div" class="border border-gray-300 rounded-md  px-2 pt-2 mt-2 mb-2 fill-slate-100 hidden">
-                        <label for="fdr-level" class="block text-sm text-gray-700 font-medium mb-1">
-                            False Discovery Rate Level (α) for Benjamini-Hochberg Correction
+                    <div id="change-threshold-type-div" class="border border-gray-300 rounded-md  p-2 my-2 fill-slate-100 hidden">
+                        <label for="change-threshold-type" class="block text-sm text-gray-700 font-medium mb-1">
+                            Significance Threshold Type:
                         </label>
-                        <div class="flex items-center space-x-2">
+                        <div class="flex items center">
                             <input
-                                type="number"
-                                name="fdr-level"
-                                id="fdr-level"
-                                value="0.00"
-                                min="0.001"
-                                max="0.2"
-                                step="0.001"
-                                class="p-2 border border-gray-300 rounded-md text-sm flex-grow"
-                                placeholder="e.g., 0.05"
+                                type="radio"
+                                id="fdr-correction-radio"
+                                name="threshold_type"
+                                value="fdr_correction"
+                                class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                checked
                             />
-                            <button type="button" id="re-run-fdr-correction" class="ml-4 bg-blue-500 hover:bg-blue-700 text-sm text-white py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">
-                                Re-run FDR Correction
-                            </button>
+                            <label for="fdr-correction-radio" class="ml-2 text-sm text-gray-700">FDR Correction</label>
                         </div>
-                        <p class="text-xs text-gray-500 mt-2 mb-2">
-                            Set α between 0.001 and 0.2. Default is 0.05.
-                        </p>
-                    </div>
+                        <div class="flex items center mt-2 mb-2">
+                            <input
+                                type="radio"
+                                id="p-value-threshold-radio"
+                                name="threshold_type"
+                                value="fdr_correction"
+                                class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                            />
+                            <label for="p-value-threshold-radio" class="ml-2 text-sm text-gray-700">P-Value Threshold</label>
+                        </div>
 
-                    <div id="p-val-threshold-div" class="border border-gray-300 rounded-md  p-2 pt-2 mt-2 mb-8 fill-slate-100 hidden">
-                        <p id="p-val-threshold" class="text-sm">p-value threshold: </p>
+                        <hr class="mb-2"/>
+
+                        <div id="fdr-level-div" class="fill-slate-100 hidden">
+                            <label for="fdr-level" class="block text-sm text-gray-700 font-medium mb-1">
+                                FDR (α) for BH Correction:
+                            </label>
+                            <div class="items-center">
+                                <input
+                                    type="number"
+                                    name="fdr-level"
+                                    id="fdr-level"
+                                    min="0.001"
+                                    max="0.2"
+                                    step="0.001"
+                                    class="p-2 border border-gray-300 rounded-md text-sm w-full"
+                                    placeholder="e.g., 0.05"
+                                />
+                                <button type="button" id="re-run-fdr-correction" class="mt-2 w-full bg-blue-500 hover:bg-blue-700 text-sm text-white py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">
+                                    Re-run FDR Correction
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="p-val-threshold-div" class="fill-slate-100 hidden">
+                            <label for="p-val-threshold" class="block text-sm text-gray-700 font-medium mb-1">
+                                P-Value Threshold:
+                            </label>
+                            <div class="items-center">
+                                <input
+                                    type="number"
+                                    name="p-val-threshold"
+                                    id="p-val-threshold"
+                                    max="1.0"
+                                    class="p-2 border border-gray-300 rounded-md text-sm w-full"
+                                    placeholder="e.g., 0.00001"
+                                />
+                                <button type="button" id="change-p-value-threshold" class="mt-2 w-full bg-blue-500 hover:bg-blue-700 text-sm text-white py-2 px-4 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">
+                                    Change P-Value Threshold
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="border border-gray-300 rounded-md bg-gray-100 px-2 pt-2 mt-2 fill-slate-100">
@@ -349,6 +389,7 @@ block content %}
 	<script>
 		window.analysis = {{ analysis | tojson }};
 	</script>
+    <script src="{{ url_for('static', filename='js/common.js') }}"></script>
 	<script src="{{ url_for('static', filename='js/view_analysis.js') }}"></script>
 </div>
 
