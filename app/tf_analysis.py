@@ -10,8 +10,8 @@ from tqdm.auto import tqdm
 
 from app.benjamini_hotchberg import run_bh_and_save_files
 
-CORES_USED = 1 # For debugging, use a single core
-# CORES_USED = max(1, int(os.cpu_count() * 0.8))  # Use 80% of available cores
+# CORES_USED = 1 # For debugging, use a single core
+CORES_USED = max(1, int(os.cpu_count() * 0.8))  # Use 80% of available cores
 
 
 def std_dev_mean_norm_rank(n_population: int, k_sample: int) -> float:
