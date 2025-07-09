@@ -8,7 +8,7 @@ from scipy.sparse import issparse
 from scipy.stats import zscore, norm
 from tqdm.auto import tqdm
 
-from app.benjamini_hotchberg import bh_fdr_correction, run_bh_and_save_files
+from app.benjamini_hotchberg import run_bh_and_save_files
 
 CORES_USED = 1 # For debugging, use a single core
 # CORES_USED = max(1, int(os.cpu_count() * 0.8))  # Use 80% of available cores
@@ -119,9 +119,14 @@ def run_tf_analysis(user_id, analysis_id, analysis_data, adata, fdr_level, updat
         z_mat = zscore(X, axis=0, nan_policy="omit") # across all cells for a single gene (axis=0)
         z_df = pd.DataFrame(z_mat, index=adata.obs_names, columns=adata.var_names)
 
-        z_scores_path = os.path.join(analysis_data.get("results_path", ""), "z_scores.csv")
+        # z_scores_path = os.path.join(analysis_data.get("results_path", ""), "z_scores.csv")
+        # print(f"Saving Z-scores to {z_scores_path}...")
+        # z_df.to_csv(z_scores_path, index=True)
+
+        # Replace the slow .to_csv() with this:
+        z_scores_path = os.path.join(analysis_data.get("results_path", ""), "z_scores.parquet")
         print(f"Saving Z-scores to {z_scores_path}...")
-        z_df.to_csv(z_scores_path, index=True)
+        z_df.to_parquet(z_scores_path)
 
 
         # ───── Load TF‑target priors ──────────────────────────────────────────────
@@ -190,16 +195,20 @@ def run_tf_analysis(user_id, analysis_id, analysis_data, adata, fdr_level, updat
         # ───── Save p_value and activation results ─────────────────────────────────────
         result_path = analysis_data.get("results_path", None)
 
-        p_values_path = os.path.join(result_path, "p_values.csv")
+        # p_values_path = os.path.join(result_path, "p_values.csv")
+        p_values_path = os.path.join(result_path, "p_values.parquet")
         print(f"Saving p-values to {p_values_path}...")
         # Remove columns with all NaN values
         p_values_df.dropna(axis=1, how="all", inplace=True)
-        p_values_df.to_csv(p_values_path, index=True)
+        # p_values_df.to_csv(p_values_path, index=True)
+        p_values_df.to_parquet(p_values_path)
 
-        activation_path = os.path.join(result_path, "activation.csv")
+        # activation_path = os.path.join(result_path, "activation.csv")
+        activation_path = os.path.join(result_path, "activation.parquet")
         print(f"Saving activation results to {activation_path}...")
         activation_df = activation_df[p_values_df.columns]
-        activation_df.to_csv(activation_path, index=True)
+        # activation_df.to_csv(activation_path, index=True)
+        activation_df.to_parquet(activation_path)
 
 
         # ───── Run Benjamini Hochberg FDR Correction ────────────────────────────────

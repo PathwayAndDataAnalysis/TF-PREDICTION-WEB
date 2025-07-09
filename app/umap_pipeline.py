@@ -135,20 +135,25 @@ def run_umap_pipeline(
                     ensembl_map_file = "human_gencode_mapping.csv"
                 elif gene_expr.get("species") == "mouse":
                     ensembl_map_file = "mouse_gencode_mapping.csv"
+                # TODO: Add support for other species if needed
                 else:
-                    ensembl_map_file = ""
+                    ensembl_map_file = "human_gencode_mapping.csv"
 
                 if ensembl_map_file:
                     script_dir = os.path.dirname(os.path.abspath(__file__))
-                    gene_ensembl_map_df = pd.read_csv(
-                        os.path.join(script_dir, "..", "prior_data", ensembl_map_file))
+                    gene_ensembl_map_df = pd.read_csv(os.path.join(script_dir, "..", "prior_data", ensembl_map_file))
 
                     # gene_ensembl_map_df is dataframe with columns: "ensembl_id", "gene_symbol". Now we can map the Ensembl IDs to gene symbols
+                    # TODO: check if adata.var.index has ensembl IDs with dots (e.g. ENSG00000047056.18)
+                    adata.var.index = adata.var.index.str.split(".").str[0]
                     adata.var["gene_symbols"] = adata.var.index.map(
                         gene_ensembl_map_df.set_index("ensembl_id")["gene_symbol"]
                     )
                     adata.var_names = adata.var["gene_symbols"]
+                    # adata.var_names_make_unique()
+                    adata.var.index = adata.var.index.astype(str)  # Convert to string
                     adata.var_names_make_unique()
+
                     current_app.logger.info("[UMAP] Successfully mapped Ensembl IDs to gene symbols.")
 
 

@@ -84,9 +84,11 @@ def run_bh_and_save_files(
     final_output[p_values_df.isna()] = np.nan
     final_output = final_output.astype("Int64")  # Use a nullable integer type
 
-    bh_reject_path = os.path.join(result_path, "bh_reject.csv")
+    # bh_reject_path = os.path.join(result_path, "bh_reject.csv")
+    bh_reject_path = os.path.join(result_path, "bh_reject.parquet")
     print(f"Saving FDR results to {bh_reject_path}...")
-    final_output.to_csv(bh_reject_path, index=True)
+    # final_output.to_csv(bh_reject_path, index=True)
+    final_output.to_parquet(bh_reject_path)
 
     p_val_threshold_path = os.path.join(result_path, "p_val_thresholds.csv")
     print(f"Saving p-value thresholds to {p_val_threshold_path}")

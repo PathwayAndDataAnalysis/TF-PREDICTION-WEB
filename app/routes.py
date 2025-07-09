@@ -701,7 +701,8 @@ def get_layout_and_metadata_dfs(analysis, user_id):
 def get_layout_and_bh_reject_df(analysis, selected_tf_name):
     """Return plot_df, tfs_df, and p_value_threshold for the given analysis."""
     bh_reject_path = analysis.get("bh_reject_path", "")
-    bh_reject = pd.read_csv(bh_reject_path, index_col=0, low_memory=False)
+    # bh_reject = pd.read_csv(bh_reject_path, index_col=0, low_memory=False)
+    bh_reject = pd.read_parquet(bh_reject_path, use_threads=True)
 
     p_val_threshold_df = pd.read_csv(analysis.get("p_val_threshold_path"), index_col=0)
     p_threshold, fdr = p_val_threshold_df.loc[selected_tf_name, ["p_thresholds", "fdr"]].values
@@ -727,13 +728,14 @@ def get_layout_and_gene_exp_levels_df(analysis, gene_name):
             return jsonify ({"error": "Z-scores file not found. Delete this analysis and create new analysis"}), 404
 
         plot_df = pd.read_csv(layout_filepath, index_col=0, sep=infer_delimiter(layout_filepath))
-        z_scores_df = pd.read_csv(z_score_filepath, index_col=0)
+        # z_scores_df = pd.read_csv(z_score_filepath, index_col=0)
+        gene_exp_levels_df = pd.read_parquet(z_score_filepath, use_threads=True, columns=[gene_name])
 
-        if gene_name not in z_scores_df.columns:
-            current_app.logger.error(f"Gene '{gene_name}' not found in z-score.")
-            return jsonify({"error": f"Gene '{gene_name}' not found in z-score data."}), 400
+        # if gene_name not in z_scores_df.columns:
+        #     current_app.logger.error(f"Gene '{gene_name}' not found in z-score.")
+        #     return jsonify({"error": f"Gene '{gene_name}' not found in z-score data."}), 400
 
-        gene_exp_levels_df = z_scores_df[[gene_name]].copy()
+        # gene_exp_levels_df = z_scores_df[[gene_name]].copy()
         plot_df = plot_df.merge(gene_exp_levels_df, left_index=True, right_index=True)
         plot_df = plot_df.dropna(subset=[gene_name])
 
@@ -1017,8 +1019,10 @@ def re_run_fdr_correction(analysis_id):
         # Read the p-values file
         current_app.logger.info(f"Reading p-values from {pvalues_path} and activation data from {activation_path}")
 
-        pvalues_df = pd.read_csv(pvalues_path, index_col=0)
-        activation_df = pd.read_csv(activation_path, index_col=0)
+        # pvalues_df = pd.read_csv(pvalues_path, index_col=0)
+        # activation_df = pd.read_csv(activation_path, index_col=0)
+        pvalues_df = pd.read_parquet(pvalues_path, use_threads=True)
+        activation_df = pd.read_parquet(activation_path, use_threads=True)
 
         current_app.logger.info(f"Re-running FDR correction for analysis_id={analysis_id} with fdr_level={fdr_level}")
 
@@ -1077,9 +1081,13 @@ def change_p_value_threshold(analysis_id):
             current_app.logger.error(f"P-value threshold file '{p_value_threshold_path}' not found for analysis_id '{analysis_id}'.")
             return jsonify({"error": "P-value threshold file not found. Cannot change p-value threshold."}), 404
 
-        pvalues_df = pd.read_csv(pvalues_path, index_col=0)
-        activation_df = pd.read_csv(activation_path, index_col=0)
-        p_value_threshold_df = pd.read_csv(p_value_threshold_path, index_col=0)
+        # pvalues_df = pd.read_csv(pvalues_path, index_col=0)
+        # activation_df = pd.read_csv(activation_path, index_col=0)
+        # p_value_threshold_df = pd.read_csv(p_value_threshold_path, index_col=0)
+        pvalues_df = pd.read_parquet(pvalues_path, use_threads=True)
+        activation_df = pd.read_parquet(activation_path, use_threads=True)
+        p_value_threshold_df = pd.read_parquet(p_value_threshold_path, use_threads=True)
+
 
         # Count for each TF how many cells in pvalues_df have p-values less than the new threshold
         discoveries = (pvalues_df < new_p_threshold).sum()
@@ -1105,7 +1113,8 @@ def change_p_value_threshold(analysis_id):
         # Propagate NaNs for cells/TFs where analysis couldn't be run
         final_output[pvalues_df.isna()] = np.nan
         final_output = final_output.astype("Int64")  # Use a nullable integer type
-        final_output.to_csv(bh_reject_path, index=True)
+        # final_output.to_csv(bh_reject_path, index=True)
+        final_output.to_parquet(bh_reject_path)
 
         print(f"Saving p-value thresholds to {p_value_threshold_path}")
         p_value_threshold_df.to_csv(p_value_threshold_path, index=True, index_label="TF")
