@@ -1,6 +1,4 @@
 import os
-import threading
-import time
 import math
 import numpy as np
 import pandas as pd
@@ -9,23 +7,11 @@ from joblib import Parallel, delayed
 from scipy.sparse import issparse
 from scipy.stats import zscore, norm
 from tqdm.auto import tqdm
-import psutil
-import gc
 
 from app.benjamini_hotchberg import bh_fdr_correction, run_bh_and_save_files
 
-# CORES_USED = 1 # For debugging, use a single core
-CORES_USED = max(1, int(os.cpu_count() * 0.8))  # Use 80% of available cores
-
-
-def check_memory_usage():
-    """Check if we have enough memory for processing."""
-    memory = psutil.virtual_memory()
-    if memory.percent > 90:  # If more than 90% memory is used
-        gc.collect()  # Force garbage collection
-        memory = psutil.virtual_memory()
-        if memory.percent > 90:
-            raise MemoryError("Insufficient memory for processing. Please try with smaller data.")
+CORES_USED = 1 # For debugging, use a single core
+# CORES_USED = max(1, int(os.cpu_count() * 0.8))  # Use 80% of available cores
 
 
 def std_dev_mean_norm_rank(n_population: int, k_sample: int) -> float:
@@ -55,10 +41,6 @@ def std_dev_mean_norm_rank(n_population: int, k_sample: int) -> float:
 def _process_single_cell(
         cell_name: str, expression_series: pd.Series, priors_df: pd.DataFrame
 ):
-    """
-    Processes a single cell's expression data to infer TF activity.
-    Returns the cell name and a dictionary of TF scores {regulator: p_value}.
-    """
     # Drop genes with all‑nan expression, rank remaining genes
     expr = expression_series.dropna().sort_values(ascending=False)
     n_genes = expr.size
@@ -120,10 +102,7 @@ def _process_single_cell(
 
 def run_tf_analysis(user_id, analysis_id, analysis_data, adata, fdr_level, update_analysis_status_fn):
     try:
-        check_memory_usage()
-
         update_analysis_status_fn(user_id=user_id, analysis_id=analysis_id, status="Running analysis")
-
         current_app.logger.info(f"[TF_ANALYSIS] Running analysis for user '{user_id}', analysis data '{analysis_data}'.")
 
         # Validate input data
@@ -132,124 +111,110 @@ def run_tf_analysis(user_id, analysis_id, analysis_data, adata, fdr_level, updat
         if adata.n_obs > 300000:  # Limit to 300k cells
             current_app.logger.warning(f"Large dataset detected: {adata.n_obs} cells. This may take a long time.")
 
-        # Add memory monitoring during processing
-        def monitor_memory():
-            while True:
-                check_memory_usage()
-                time.sleep(30)  # Check every 30 seconds
+        # ───── Load gene expression data ────────────────────────────────────────
+        X = adata.X.toarray() if issparse(adata.X) else adata.X.copy()
+        X[X == 0] = np.nan
+        X[X == 0.0] = np.nan
+        print("Calculating Z-scores...")
+        z_mat = zscore(X, axis=0, nan_policy="omit") # across all cells for a single gene (axis=0)
+        z_df = pd.DataFrame(z_mat, index=adata.obs_names, columns=adata.var_names)
 
-        # Start memory monitoring in the background
-        memory_thread = threading.Thread(target=monitor_memory, daemon=True)
-        memory_thread.start()
-
-        try:
-            # ───── Load gene expression data ────────────────────────────────────────
-            X = adata.X.toarray() if issparse(adata.X) else adata.X.copy()
-            X[X == 0] = np.nan
-            X[X == 0.0] = np.nan
-            print("Calculating Z-scores...")
-            z_mat = zscore(X, axis=0, nan_policy="omit") # across all cells for a single gene (axis=0)
-            z_df = pd.DataFrame(z_mat, index=adata.obs_names, columns=adata.var_names)
-
-            z_scores_path = os.path.join(analysis_data.get("results_path", ""), "z_scores.csv")
-            print(f"Saving Z-scores to {z_scores_path}...")
-            z_df.to_csv(z_scores_path, index=True)
+        z_scores_path = os.path.join(analysis_data.get("results_path", ""), "z_scores.csv")
+        print(f"Saving Z-scores to {z_scores_path}...")
+        z_df.to_csv(z_scores_path, index=True)
 
 
-            # ───── Load TF‑target priors ──────────────────────────────────────────────
-            print("Loading TF-target priors...")
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            priors = pd.read_csv(os.path.join(script_dir, "..", "prior_data", "causal_priors.tsv"), sep="\t")
-            priors = priors[priors["TargetGene"].notna()]
-            expected_cols = {"Regulator", "TargetGene", "RegulatoryEffect"}
-            if not expected_cols.issubset(priors.columns):
-                raise ValueError(f"Prior file must contain columns {expected_cols}")
+        # ───── Load TF‑target priors ──────────────────────────────────────────────
+        print("Loading TF-target priors...")
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        priors = pd.read_csv(os.path.join(script_dir, "..", "prior_data", "causal_priors.tsv"), sep="\t")
+        priors = priors[priors["TargetGene"].notna()]
+        expected_cols = {"Regulator", "TargetGene", "RegulatoryEffect"}
+        if not expected_cols.issubset(priors.columns):
+            raise ValueError(f"Prior file must contain columns {expected_cols}")
 
 
-            # ───── Parallel processing of cells ───────────────────────────────────────
-            current_app.logger.info(f"[TF_ANALYSIS] Starting TF analysis for user '{user_id}', analysis '{analysis_id}'.")
-            print(f"Starting TF activity using {CORES_USED if CORES_USED > 0 else 'all available'} cores.")
-            tasks = [
-                delayed(_process_single_cell)(
-                    cell_name,
-                    z_df.loc[cell_name],  # Pass the expression series for the cell
-                    priors,  # Pass the (entire) priors DataFrame
-                )
-                for cell_name in z_df.index
-            ]
-
-            # `backend="loky"` is robust and default for joblib in many cases, good for cross-platform
-            if CORES_USED == 1:  # Useful for debugging
-                print("Running sequentially (CORES_USED=1)...")
-                cell_results_list = [
-                    _process_single_cell(cell_name, z_df.loc[cell_name], priors)
-                    for cell_name in tqdm(z_df.index, desc="Processing cells")
-                ]
-            else:
-                print(f"Running in parallel with CORES_USED={CORES_USED}...")
-                cell_results_list = Parallel(n_jobs=CORES_USED, backend="loky", verbose=2)(tqdm(tasks, desc="Processing cells"))
-
-
-            # ───── Aggregate results into two separate DataFrames ───────────────────
-            print("\nAggregating results...")
-            p_value_records = []
-            activation_records = []
-            # 1. Unpack results into flat lists of records
-            for cell_name, regulators, p_values, directions in tqdm(cell_results_list, desc="Unpacking results"):
-                for i, regulator in enumerate(regulators):
-                    p_value_records.append({'cell': cell_name, 'regulator': regulator, 'p_value': p_values[i]})
-                    activation_records.append(
-                        {'cell': cell_name, 'regulator': regulator, 'direction': directions[i]})
-            # 2. Build temporary DataFrames from the lists of records (very fast)
-            p_values_temp_df = pd.DataFrame.from_records(p_value_records)
-            activation_temp_df = pd.DataFrame.from_records(activation_records)
-            # 3. Pivot the temporary DataFrames into the desired final shape (cells x regulators)
-            # This is the most efficient way to reshape the data.
-            if not p_values_temp_df.empty:
-                p_values_df = p_values_temp_df.pivot(index='cell', columns='regulator', values='p_value')
-                activation_df = activation_temp_df.pivot(index='cell', columns='regulator', values='direction')
-            else:
-                # Handle a case where no TFs were found for any cell
-                all_regulators = priors["Regulator"].unique()
-                p_values_df = pd.DataFrame(index=z_df.index, columns=all_regulators, dtype=float)
-                activation_df = pd.DataFrame(index=z_df.index, columns=all_regulators, dtype=float)
-
-            current_app.logger.info("[TF_ANALYSIS] Reindexing result DataFrames to match AnnData object order.")
-            p_values_df = p_values_df.reindex(adata.obs_names)
-            activation_df = activation_df.reindex(adata.obs_names)
-
-
-            # ───── Save p_value and activation results ─────────────────────────────────────
-            result_path = analysis_data.get("results_path", None)
-
-            p_values_path = os.path.join(result_path, "p_values.csv")
-            print(f"Saving p-values to {p_values_path}...")
-            # Remove columns with all NaN values
-            p_values_df.dropna(axis=1, how="all", inplace=True)
-            p_values_df.to_csv(p_values_path, index=True)
-
-            activation_path = os.path.join(result_path, "activation.csv")
-            print(f"Saving activation results to {activation_path}...")
-            activation_df = activation_df[p_values_df.columns]
-            activation_df.to_csv(activation_path, index=True)
-
-
-            # ───── Run Benjamini Hochberg FDR Correction ────────────────────────────────
-            run_bh_and_save_files(
-                user_id=user_id,
-                analysis_id=analysis_id,
-                p_values_df=p_values_df,
-                activation_df=activation_df,
-                result_path=result_path,
-                fdr_level=fdr_level,
-                update_analysis_status_fn=update_analysis_status_fn,
-                p_values_path=p_values_path,
-                activation_path=activation_path,
-                z_scores_path=z_scores_path,
+        # ───── Parallel processing of cells ───────────────────────────────────────
+        current_app.logger.info(f"[TF_ANALYSIS] Starting TF analysis for user '{user_id}', analysis '{analysis_id}'.")
+        print(f"Starting TF activity using {CORES_USED if CORES_USED > 0 else 'all available'} cores.")
+        tasks = [
+            delayed(_process_single_cell)(
+                cell_name,
+                z_df.loc[cell_name],  # Pass the expression series for the cell
+                priors,  # Pass the (entire) priors DataFrame
             )
-        finally:
-            memory_thread.join(timeout=1)
+            for cell_name in z_df.index
+        ]
 
+        # `backend="loky"` is robust and default for joblib in many cases, good for cross-platform
+        if CORES_USED == 1:  # Useful for debugging
+            print("Running sequentially (CORES_USED=1)...")
+            cell_results_list = [
+                _process_single_cell(cell_name, z_df.loc[cell_name], priors)
+                for cell_name in tqdm(z_df.index, desc="Processing cells")
+            ]
+        else:
+            print(f"Running in parallel with CORES_USED={CORES_USED}...")
+            cell_results_list = Parallel(n_jobs=CORES_USED, backend="loky", verbose=2)(tqdm(tasks, desc="Processing cells"))
+
+
+        # ───── Aggregate results into two separate DataFrames ───────────────────
+        print("\nAggregating results...")
+        p_value_records = []
+        activation_records = []
+        # 1. Unpack results into flat lists of records
+        for cell_name, regulators, p_values, directions in tqdm(cell_results_list, desc="Unpacking results"):
+            for i, regulator in enumerate(regulators):
+                p_value_records.append({'cell': cell_name, 'regulator': regulator, 'p_value': p_values[i]})
+                activation_records.append(
+                    {'cell': cell_name, 'regulator': regulator, 'direction': directions[i]})
+        # 2. Build temporary DataFrames from the lists of records (very fast)
+        p_values_temp_df = pd.DataFrame.from_records(p_value_records)
+        activation_temp_df = pd.DataFrame.from_records(activation_records)
+        # 3. Pivot the temporary DataFrames into the desired final shape (cells x regulators)
+        # This is the most efficient way to reshape the data.
+        if not p_values_temp_df.empty:
+            p_values_df = p_values_temp_df.pivot(index='cell', columns='regulator', values='p_value')
+            activation_df = activation_temp_df.pivot(index='cell', columns='regulator', values='direction')
+        else:
+            # Handle a case where no TFs were found for any cell
+            all_regulators = priors["Regulator"].unique()
+            p_values_df = pd.DataFrame(index=z_df.index, columns=all_regulators, dtype=float)
+            activation_df = pd.DataFrame(index=z_df.index, columns=all_regulators, dtype=float)
+
+        current_app.logger.info("[TF_ANALYSIS] Reindexing result DataFrames to match AnnData object order.")
+        p_values_df = p_values_df.reindex(adata.obs_names)
+        activation_df = activation_df.reindex(adata.obs_names)
+
+
+        # ───── Save p_value and activation results ─────────────────────────────────────
+        result_path = analysis_data.get("results_path", None)
+
+        p_values_path = os.path.join(result_path, "p_values.csv")
+        print(f"Saving p-values to {p_values_path}...")
+        # Remove columns with all NaN values
+        p_values_df.dropna(axis=1, how="all", inplace=True)
+        p_values_df.to_csv(p_values_path, index=True)
+
+        activation_path = os.path.join(result_path, "activation.csv")
+        print(f"Saving activation results to {activation_path}...")
+        activation_df = activation_df[p_values_df.columns]
+        activation_df.to_csv(activation_path, index=True)
+
+
+        # ───── Run Benjamini Hochberg FDR Correction ────────────────────────────────
+        run_bh_and_save_files(
+            user_id=user_id,
+            analysis_id=analysis_id,
+            p_values_df=p_values_df,
+            activation_df=activation_df,
+            result_path=result_path,
+            fdr_level=fdr_level,
+            update_analysis_status_fn=update_analysis_status_fn,
+            p_values_path=p_values_path,
+            activation_path=activation_path,
+            z_scores_path=z_scores_path,
+        )
         # ───── Final logging and status update ─────────────────────────────────────
         current_app.logger.info(f"[TF_ANALYSIS] TF analysis completed for user '{user_id}', analysis '{analysis_id}'")
 
