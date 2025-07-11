@@ -1,14 +1,28 @@
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+import os
 
+import psutil
+from werkzeug.utils import secure_filename
 import pandas as pd
-from flask import current_app
+from flask import current_app, jsonify
 import scanpy as sc
 import numpy as np
-from . import get_file_path, get_all_users_data, save_all_users_data
+from . import get_all_users_data, save_all_users_data, get_file_path
 from filelock import FileLock
 
 executor = ThreadPoolExecutor(max_workers=4)  # Adjust as needed
+
+MAX_FILE_SIZE = 500 * 1024 * 1024 * 1024  # 500 GB
+MIN_DISK_SPACE = 10 * 1024 * 1024 * 1024  # 10 GB
+
+# Define constants for column names
+CLUSTER_COL = "Cluster"
+UMAP1_COL = "X_umap1"
+UMAP2_COL = "X_umap2"
+PCA1_COL = "X_pca1"
+PCA2_COL = "X_pca2"
 
 
 def run_in_background(fn, *args, **kwargs):
@@ -263,3 +277,234 @@ def infer_delimiter(filepath):
             f"[UTILS] Unsupported file extension '{ext}' for delimiter inference. Defaulting to comma."
         )
         return ','
+
+
+def check_system_resources():
+    """Check if system has enough resources for processing."""
+    try:
+        # Check disk space
+        disk_usage = shutil.disk_usage(current_app.config["UPLOAD_FOLDER"])
+        if disk_usage.free < MIN_DISK_SPACE:
+            raise ValueError(f"Insufficient disk space. Need at least {MIN_DISK_SPACE / (1024 ** 3):.1f} GB free.")
+
+        # Check memory
+        memory = psutil.virtual_memory()
+        if memory.available < 2 * 1024 * 1024 * 1024:  # 2 GB
+            raise ValueError("Insufficient memory available for processing.")
+
+        return True
+    except Exception as e:
+        current_app.logger.error(f"System resource check failed: {e}")
+        return False
+
+
+def get_user_specific_data_path(username):
+    """Returns the path to a user's dedicated data directory."""
+    # current_app.config['UPLOAD_FOLDER'] is the root for all user uploads
+    base_upload_folder = current_app.config["UPLOAD_FOLDER"]
+    # Sanitize username for directory creation, though secure_filename is usually for files
+    safe_username_dir = secure_filename(username)  # Ensures username is safe for path
+    path = os.path.join(base_upload_folder, safe_username_dir)
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as e:
+        current_app.logger.error(f"Could not create user data path {path}: {e}")
+        return None  # Indicate failure
+    return path
+
+
+def get_user_analysis_path(username, analysis_id):
+    """Returns the path to a specific analysis directory for a user."""
+    user_data_path = get_user_specific_data_path(username)
+    if not user_data_path:
+        return None
+    analysis_base_dir_name = "analyses"  # Name of the subfolder for all analyses
+    analysis_path = os.path.join(
+        user_data_path, analysis_base_dir_name, secure_filename(analysis_id)
+    )
+    try:
+        os.makedirs(analysis_path, exist_ok=True)  # Create if it doesn't exist
+    except OSError as e:
+        current_app.logger.error(f"Could not create analysis path {analysis_path}: {e}")
+        return None
+    return analysis_path
+
+
+def allowed_file(filename):
+    return (
+            "." in filename
+            and filename.rsplit(".", 1)[1].lower()
+            in current_app.config["ALLOWED_EXTENSIONS"]
+    )
+
+
+def estimate_fdr_for_gene(p_values_df, gene_name, p_value_cutoff):
+    if gene_name not in p_values_df.columns:
+        return np.nan
+
+    p_gene = p_values_df[[gene_name]].dropna()
+    m = p_gene.shape[0]  # Total tests for this gene
+    if m == 0:
+        return np.nan
+
+    discoveries = (p_gene < p_value_cutoff).sum().iloc[0]
+
+    if discoveries > 0:
+        fdr = (p_value_cutoff * m) / discoveries
+        return fdr
+    else:
+        return np.nan  # Or 0.0 if you prefer
+
+
+def generate_scatter_plot_response(analysis_to_view, plot_type=None):
+    try:
+        layout_filepath = (analysis_to_view.get("inputs", {}).get("layout", {}).get("layout_filepath", ""))
+
+        if not os.path.exists(layout_filepath):
+            current_app.logger.error(f"Layout file '{layout_filepath}' not found!")
+            return jsonify({"error": "Layout file not found."}), 404
+
+        # Determine which coordinates to load
+        if plot_type == 'umap_plot':
+            column_names = [UMAP1_COL, UMAP2_COL]
+            plot_title = "UMAP Plot"
+        elif plot_type == 'pca_plot':
+            plot_title = "PCA Plot"
+            column_names = [PCA1_COL, PCA2_COL]
+        else:
+            return jsonify({"error": "Invalid plot type specified."}), 400
+
+        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=infer_delimiter(layout_filepath))
+
+        traces = []
+        for cluster_label, group_df in plot_df.groupby(CLUSTER_COL):
+            traces.append(
+                {
+                    "cluster": str(cluster_label),
+                    "x": group_df[column_names[0]].tolist(),
+                    "y": group_df[column_names[1]].tolist(),
+                    "mode": "markers",
+                    "type": "scattergl",
+                    "name": str(cluster_label),
+                }
+            )
+
+        layout = {
+            "title": plot_title,
+            "xaxis": {"title": column_names[0]},
+            "yaxis": {"title": column_names[1]},
+        }
+
+        graph_data = {
+            "data": traces,
+            "layout": layout,
+            "metadata_cols": analysis_to_view.get("metadata_cols", []),
+            "tfs": analysis_to_view.get("tfs", [])
+        }
+        return jsonify(graph_data), 200
+
+    except Exception as e:
+        current_app.logger.error(
+            f"Unexpected error for analysis_id '{analysis_to_view['id']}': {e}",
+            exc_info=True,
+        )
+        return jsonify({"error": "An unexpected error occurred while preparing the plot."}), 500
+
+
+def get_layout_and_metadata_dfs(analysis, user_id):
+    layout_source = analysis.get("inputs", {}).get("layout", {}).get("source")
+
+    layout_filepath = analysis.get("inputs").get("layout").get("layout_filepath")
+    plot_df = pd.read_csv(layout_filepath, index_col=0, sep=infer_delimiter(layout_filepath))
+
+    if layout_source == "FILE":
+        metadata_filepath = analysis.get("inputs").get("gene_expression").get("metadata_filepath", {})
+        metadata_df = pd.read_csv(get_file_path(metadata_filepath, user_id), index_col=0,
+                                  sep=infer_delimiter(metadata_filepath))
+    else:
+        h5ad_file = analysis.get("inputs").get("gene_expression").get("h5ad_filepath")
+        adata = sc.read_h5ad(get_file_path(h5ad_file, user_id))
+        metadata_df = pd.DataFrame(adata.obs)
+
+    return plot_df, metadata_df
+
+
+def get_layout_and_gene_exp_levels_df(analysis, gene_name):
+    try:
+        layout_filepath = (analysis.get("inputs").get("layout").get("layout_filepath"))
+        z_score_filepath = analysis.get("z_scores_path", "")
+
+        if not os.path.exists(layout_filepath):
+            current_app.logger.error(f"Layout file '{layout_filepath}' not found for analysis_id '{analysis['id']}'.")
+            return jsonify({"error": "Layout file not found. Delete this analysis and create new analysis"}), 404
+
+        if not os.path.exists(z_score_filepath):
+            current_app.logger.error(f"Z-scores file '{z_score_filepath}' not found.")
+            return jsonify({"error": "Z-scores file not found. Delete this analysis and create new analysis"}), 404
+
+        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=infer_delimiter(layout_filepath))
+        gene_exp_levels_df = pd.read_parquet(z_score_filepath, use_threads=True, columns=[gene_name])
+
+        plot_df = plot_df.merge(gene_exp_levels_df, left_index=True, right_index=True)
+        plot_df = plot_df.dropna(subset=[gene_name])
+
+        return plot_df
+    except Exception as e:
+        current_app.logger.error(f"Error reading layout/z-score file for analysis_id '{analysis['id']}': {e}")
+        return jsonify({"error": "Failed to read layout/z-score file. Invalid format."}), 500
+
+
+def generate_colored_traces(
+        plot_df, plot_type="umap_plot", cluster_col="Cluster", tf_activity=None
+):
+    if plot_type.lower() == "umap_plot":
+        x_col, y_col = UMAP1_COL, UMAP2_COL
+        title = (
+            f"UMAP Plot Colored by {cluster_col if not tf_activity else tf_activity}"
+        )
+    elif plot_type.lower() == "pca_plot":
+        x_col, y_col = PCA1_COL, PCA2_COL
+        title = f"PCA Plot Colored by {cluster_col if not tf_activity else tf_activity}"
+    else:
+        current_app.logger.warning(f"Unknown plot type '{plot_type}'")
+        return jsonify({"error": f"Unknown plot type: {plot_type}"}), 400
+
+    traces = []
+    if tf_activity:
+        plot_df[tf_activity] = plot_df[tf_activity].replace(
+            {1: "Active", -1: "Inactive", 0: "Insignificant", np.nan: "Not_Enough_Data"}
+        )
+
+        unique_clusters = {
+            "Active": "red",
+            "Inactive": "blue",
+            "Insignificant": "gray",
+            "Not_Enough_Data": "yellow",
+        }
+        for cluster in unique_clusters.keys():
+            traces.append(
+                {
+                    "cluster": cluster,
+                    "x": plot_df[plot_df[tf_activity] == cluster][x_col].tolist(),
+                    "y": plot_df[plot_df[tf_activity] == cluster][y_col].tolist(),
+                    "mode": "markers",
+                    "type": "scattergl",
+                    "name": cluster,
+                    "marker": {
+                        "color": unique_clusters[cluster],
+                    },
+                }
+            )
+    else:
+        for cluster in plot_df[cluster_col].unique().tolist():
+            traces.append(
+                {
+                    "cluster": cluster,
+                    "x": plot_df[plot_df["Cluster"] == cluster][x_col].tolist(),
+                    "y": plot_df[plot_df["Cluster"] == cluster][y_col].tolist(),
+                    "mode": "markers",
+                    "type": "scattergl",
+                    "name": cluster,
+                }
+            )
+    return traces, title, x_col, y_col

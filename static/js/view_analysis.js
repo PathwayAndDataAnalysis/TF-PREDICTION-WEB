@@ -11,11 +11,9 @@ const colorBySelect = document.getElementById("color-by");
 const metadataColSelectionDiv = document.getElementById("metadata-column-selection-div");
 const metadataColNameSelect = document.getElementById("metadata-column-name");
 const tfSelectionDiv = document.getElementById("tf-selection-div");
-const tfManualEntryDiv = document.getElementById("tf-manual-entry-div");
 const geneEntryDiv = document.getElementById("gene-entry-div");
 const colorScaleSelectionDiv = document.getElementById("color-scale-selection-div");
 const tfNameSelect = document.getElementById("tf-name-select");
-const tfManualEntryInput = document.getElementById("tf-manual-entry-input");
 const geneEntryInput = document.getElementById("gene-entry-input");
 const pointSizeSlider = document.getElementById("point-size");
 const pointSizeValue = document.getElementById("point-size-value");
@@ -50,10 +48,6 @@ function clearAllSelections() {
 		tfSelectionDiv.classList.add("hidden");
 		changeThresholdTypeDiv.classList.add("hidden");
 	}
-	if (tfManualEntryInput) {
-		tfManualEntryInput.value = "";
-		tfManualEntryDiv.classList.add("hidden");
-	}
 	if (geneEntryInput) {
 		geneEntryInput.value = "";
 		geneEntryDiv.classList.add("hidden");
@@ -87,7 +81,6 @@ if (colorBySelect) {
 	colorBySelect.addEventListener("change", function () {
 		if (this.value === "tf_activity") {
 			tfSelectionDiv.classList.remove("hidden");
-			tfManualEntryDiv.classList.remove("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
 			geneEntryDiv.classList.add("hidden");
 			colorScaleSelectionDiv.classList.add("hidden");
@@ -100,7 +93,6 @@ if (colorBySelect) {
 		}
 		else if (this.value === "metadata_columns") {
 			tfSelectionDiv.classList.add("hidden");
-			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.remove("hidden");
 			geneEntryDiv.classList.add("hidden");
 			colorScaleSelectionDiv.classList.add("hidden");
@@ -109,7 +101,6 @@ if (colorBySelect) {
 
 			// Clear selections
 			tfNameSelect.value = "select_tf";
-			tfManualEntryInput.value = "";
 			fdrLevel.value = "";
 			pValueThreshold.value = "";
 			geneEntryInput.value = "";
@@ -119,14 +110,12 @@ if (colorBySelect) {
 			geneEntryDiv.classList.remove("hidden");
 			colorScaleSelectionDiv.classList.remove("hidden");
 			tfSelectionDiv.classList.add("hidden");
-			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
 			fdrLevelDiv.classList.add("hidden");
 			changeThresholdTypeDiv.classList.add("hidden");
 
 			// Clear selections
 			tfNameSelect.value = "select_tf";
-			tfManualEntryInput.value = "";
 			fdrLevel.value = "";
 			pValueThreshold.value = "";
 			metadataColNameSelect.value = "select_metadata_column";
@@ -135,7 +124,6 @@ if (colorBySelect) {
 			geneEntryDiv.classList.add("hidden");
 			colorScaleSelectionDiv.classList.add("hidden");
 			tfSelectionDiv.classList.add("hidden");
-			tfManualEntryDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
 			fdrLevelDiv.classList.add("hidden");
 			changeThresholdTypeDiv.classList.add("hidden");
@@ -243,30 +231,6 @@ tfNameSelect.addEventListener("change", function () {
 	}
 });
 
-tfManualEntryInput.addEventListener("keypress", function (event) {
-	if (event.key === "Enter") {
-		let tf_name = this.value.trim().toUpperCase();
-
-		if (tf_name) {
-			const apiUrl = `/analysis/change-fdr-tf/${window.analysis.id}`;
-
-			updatePlotData(
-				apiUrl,
-				"POST",
-				{ tf_name: tf_name, plot_type: plotTypeSelect.value }
-			).then(() => {
-				console.log("TF activity plot loaded successfully.");
-			})
-			.catch((err) => {
-				console.error("Failed to load plot:", err);
-				alert("Failed to load plot. Please try again later.");
-			});
-		} else {
-			alert("Please enter a valid TF name.");
-		}
-	}
-});
-
 geneEntryInput.addEventListener("keypress", function (event) {
 	if (event.key === "Enter") {
 		let gene_name = this.value.trim().toUpperCase();
@@ -318,48 +282,57 @@ if (showLegendCheckbox) {
 }
 
 changeFDRCorrectionButton.addEventListener("click", async function (e) {
-	try {
-		const apiUrl = `/analysis/change-fdr-tf/${window.analysis.id}`;
-		const tf_name = tfNameSelect.value !== "select_tf" ? tfNameSelect.value : tfManualEntryInput.value.trim().toUpperCase();
+	if (this.value !== "select_tf"){
+		try {
+			const apiUrl = `/analysis/change-fdr-tf/${window.analysis.id}`;
 
-		updatePlotData(
-			apiUrl,
-			"POST",
-			{ fdr_level: fdrLevel.value, tf_name: tf_name, plot_type: plotTypeSelect.value }
-		).then(() => {
-			console.log("TF activity plot loaded successfully.");
-		})
-		.catch((err) => {
-			console.error("Failed to load plot:", err);
-			alert("Failed to load plot. Please try again later.");
-		});
-	}
-	catch (error) {
-		console.error("Error re-running FDR correction:", error);
-		alert("Failed to re-run FDR correction. Please try again later.");
+			updatePlotData(
+				apiUrl,
+				"POST",
+				{
+					fdr_level: fdrLevel.value,
+					tf_name: tfNameSelect.value,
+					plot_type: plotTypeSelect.value
+				}
+			).then(() => {
+				console.log("TF activity plot loaded successfully.");
+			})
+			.catch((err) => {
+				console.error("Failed to load plot:", err);
+				alert("Failed to load plot. Please try again later.");
+			});
+		}
+		catch (error) {
+			console.error("Error re-running FDR correction:", error);
+			alert("Failed to re-run FDR correction. Please try again later.");
+		}
 	}
 });
 
 changePValueThreshold.addEventListener("click", async function (e) {
-	try {
-		const apiUrl = `/analysis/change-pvalue-threshold-tf/${window.analysis.id}`;
-		const tf_name = tfNameSelect.value !== "select_tf" ? tfNameSelect.value : tfManualEntryInput.value.trim().toUpperCase();
+	if (this.value !== "select_tf") {
+		try {
+			const apiUrl = `/analysis/change-pvalue-threshold-tf/${window.analysis.id}`;
 
-		updatePlotData(
-			apiUrl,
-			"POST",
-			{ pvalue_threshold: pValueThreshold.value, fdr_level: fdrLevel.value, tf_name: tf_name, plot_type: plotTypeSelect.value }
-		).then(() => {
-			console.log("TF activity plot loaded successfully.");
-		})
-		.catch((err) => {
-			console.error("Failed to load plot:", err);
-			alert("Failed to load plot. Please try again later.");
-		});
-	}
-	catch (error) {
-		console.error("Error changing pvalue threshold.", error);
-		alert("Failed to changing pvalue threshold. Please try again later.");
+			updatePlotData(
+				apiUrl,
+				"POST",
+				{
+					pvalue_threshold: pValueThreshold.value,
+					tf_name: tfNameSelect.value,
+					plot_type: plotTypeSelect.value
+				}
+			).then(() => {
+				console.log("TF activity plot loaded successfully.");
+			})
+				.catch((err) => {
+					console.error("Failed to load plot:", err);
+					alert("Failed to load plot. Please try again later.");
+				});
+		} catch (error) {
+			console.error("Error changing pvalue threshold.", error);
+			alert("Failed to changing pvalue threshold. Please try again later.");
+		}
 	}
 });
 
