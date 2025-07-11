@@ -28,7 +28,7 @@ from . import (
     find_analysis_by_id,
     get_file_path,
 )
-from .benjamini_hotchberg import bh_fdr_correction, run_bh_and_save_files
+from .benjamini_hotchberg import bh_fdr_correction
 from .tf_analysis import run_tf_analysis
 from .umap_pipeline import run_umap_pipeline
 from .utils import run_in_background, update_analysis_status, infer_delimiter, calculate_and_save_qc_metrics
@@ -504,9 +504,6 @@ def create_analysis():
                 flash("Please select a 2D layout file.", "error")
                 return redirect(url_for("main_routes.create_analysis_page"))
 
-        # Desired FDR Level (alpha) for Benjamini-Hochberg correction
-        fdr_level = request.form.get("fdr_level", default=0.05, type=float)
-
         current_user_node = all_users_data.setdefault(
             current_user.id, {"password": "HASH_PLACEHOLDER", "files": [], "analyses": []}
         )
@@ -564,8 +561,7 @@ def create_analysis():
                         if not have_2d_layout and umap_parameters
                         else {}
                     ),
-                },
-                "fdr_level": fdr_level,
+                }
             },
             **({"metadata_cols": metadata_cols} if not have_h5ad and metadata_file else {}),
         }
@@ -681,7 +677,6 @@ def get_plot(analysis_id):
 
 
 def get_layout_and_metadata_dfs(analysis, user_id):
-    """Return plot_df and metadata_df for the given analysis."""
     layout_source = analysis.get("inputs", {}).get("layout", {}).get("source")
 
     layout_filepath = analysis.get("inputs").get("layout").get("layout_filepath")
@@ -698,23 +693,7 @@ def get_layout_and_metadata_dfs(analysis, user_id):
     return plot_df, metadata_df
 
 
-def get_layout_and_bh_reject_df(analysis, selected_tf_name):
-    """Return plot_df, tfs_df, and p_value_threshold for the given analysis."""
-    bh_reject_path = analysis.get("bh_reject_path", "")
-    # bh_reject = pd.read_csv(bh_reject_path, index_col=0, low_memory=False)
-    bh_reject = pd.read_parquet(bh_reject_path, use_threads=True)
-
-    p_val_threshold_df = pd.read_csv(analysis.get("p_val_threshold_path"), index_col=0)
-    p_threshold, fdr = p_val_threshold_df.loc[selected_tf_name, ["p_thresholds", "fdr"]].values
-
-    layout_filepath = analysis.get("inputs").get("layout").get("layout_filepath")
-    plot_df = pd.read_csv(layout_filepath, index_col=0, sep=infer_delimiter(layout_filepath))
-
-    return plot_df, bh_reject, p_threshold, fdr
-
-
 def get_layout_and_gene_exp_levels_df(analysis, gene_name):
-    """Return plot_df and gene_exp_levels_df for the given analysis."""
     try:
         layout_filepath = (analysis.get("inputs").get("layout").get("layout_filepath"))
         z_score_filepath = analysis.get("z_scores_path", "")
@@ -728,14 +707,8 @@ def get_layout_and_gene_exp_levels_df(analysis, gene_name):
             return jsonify ({"error": "Z-scores file not found. Delete this analysis and create new analysis"}), 404
 
         plot_df = pd.read_csv(layout_filepath, index_col=0, sep=infer_delimiter(layout_filepath))
-        # z_scores_df = pd.read_csv(z_score_filepath, index_col=0)
         gene_exp_levels_df = pd.read_parquet(z_score_filepath, use_threads=True, columns=[gene_name])
 
-        # if gene_name not in z_scores_df.columns:
-        #     current_app.logger.error(f"Gene '{gene_name}' not found in z-score.")
-        #     return jsonify({"error": f"Gene '{gene_name}' not found in z-score data."}), 400
-
-        # gene_exp_levels_df = z_scores_df[[gene_name]].copy()
         plot_df = plot_df.merge(gene_exp_levels_df, left_index=True, right_index=True)
         plot_df = plot_df.dropna(subset=[gene_name])
 
@@ -867,62 +840,6 @@ def get_metadata_color_by(analysis_id):
         return jsonify({"error": "Internal server error."}), 500
 
 
-@main_bp.route("/analysis/tf-activity/<analysis_id>", methods=["POST"])
-@login_required
-def get_tf_color_by(analysis_id):
-    try:
-        all_users_data = get_all_users_data()
-        user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
-        analysis = find_analysis_by_id(user_analyses, analysis_id)
-
-        if not analysis:
-            current_app.logger.error(f"Analysis not found: analysis_id={analysis_id}")
-            return jsonify({"error": "Analysis not found."}), 404
-        if analysis.get("status") != "Completed":
-            current_app.logger.warning(f"Analysis not completed yet: analysis_id={analysis_id}")
-            return jsonify({"error": "Analysis is not completed yet."}), 400
-
-        selected_tf_name = request.json.get("selected_tf", "").strip()
-        plot_type = request.json.get("plot_type", "").strip()
-        current_app.logger.debug(f"Received TF activity='{selected_tf_name}', plot_type='{plot_type}'.")
-
-        tfs = analysis.get("tfs", [])
-        if selected_tf_name not in tfs:
-            current_app.logger.error(f"Requested TF activity '{selected_tf_name}' not found.")
-            return jsonify({"error": f"TF activity '{selected_tf_name}' not found."}), 400
-
-        plot_df, bh_reject, p_threshold, fdr = get_layout_and_bh_reject_df(analysis, selected_tf_name)
-        if selected_tf_name not in bh_reject.columns:
-            current_app.logger.error(f"TF activity '{selected_tf_name}' not found in BH reject.")
-            return jsonify({"error": f"TF activity '{selected_tf_name}' not found in BH reject file."}), 400
-
-        plot_df = plot_df.merge(
-            bh_reject[selected_tf_name].astype(object), left_index=True, right_index=True
-        )
-        traces, title, x_col, y_col = generate_colored_traces(
-            plot_df=plot_df,
-            plot_type=plot_type,
-            tf_activity=selected_tf_name
-        )
-        layout = {
-            "title": title,
-            "xaxis": {"title": x_col},
-            "yaxis": {"title": y_col}
-        }
-        graph_data = {
-            "data": traces,
-            "layout": layout,
-            "fdr_level": fdr,
-            "p_value_threshold": p_threshold
-        }
-
-        return jsonify(graph_data), 200
-
-    except Exception as e:
-        current_app.logger.error(f"Error in get_tf_color_by for analysis_id={analysis_id}': {e}", exc_info=True)
-        return jsonify({"error": "Internal server error."}), 500
-
-
 @main_bp.route("/analysis/gene-expression/<analysis_id>", methods=["POST"])
 @login_required
 def get_gene_expression_color_by(analysis_id):
@@ -988,57 +905,69 @@ def get_gene_expression_color_by(analysis_id):
         return jsonify({"error": "Internal server error."}), 500
 
 
-@main_bp.route("/analysis/re-run-fdr-correction/<analysis_id>", methods=["POST"])
+@main_bp.route("/analysis/change-fdr-tf/<analysis_id>", methods=["POST"])
 @login_required
-def re_run_fdr_correction(analysis_id):
+def change_fdr_tf(analysis_id):
     try:
-        fdr_level = float(request.json.get("fdr_level"))
         all_users_data = get_all_users_data()
         user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
         analysis = find_analysis_by_id(user_analyses, analysis_id)
 
+        fdr_level = float(request.json.get("fdr_level", 0.05))
+        tf_name = request.json.get("tf_name").strip()
+        plot_type = request.json.get("plot_type").strip()
+
         if not analysis:
             current_app.logger.error(f"Analysis not found: analysis_id={analysis_id}")
             return jsonify({"error": "Analysis not found."}), 404
-
         if analysis.get("status") != "Completed":
             current_app.logger.warning(f"Analysis not completed yet: analysis_id={analysis_id}")
             return jsonify({"error": "Analysis is not completed yet."}), 400
 
         pvalues_path = analysis.get("pvalues_path")
+        layout_filepath = analysis.get("inputs").get("layout").get("layout_filepath")
         activation_path = analysis.get("activation_path")
 
         if not os.path.exists(pvalues_path):
             current_app.logger.error(f"P-values file '{pvalues_path}' not found for analysis_id '{analysis_id}'.")
             return jsonify({"error": "P-values file not found. Cannot re-run FDR correction."}), 404
-
+        if not os.path.exists(layout_filepath):
+            current_app.logger.error(f"Layout file '{layout_filepath}' not found for analysis_id '{analysis_id}'.")
+            return jsonify({"error": "Layout file not found. Cannot re-run FDR correction."}), 404
         if not os.path.exists(activation_path):
             current_app.logger.error(f"Activation file '{activation_path}' not found for analysis_id '{analysis_id}'.")
             return jsonify({"error": "Activation file not found. Cannot re-run FDR correction."}), 404
 
-        # Read the p-values file
-        current_app.logger.info(f"Reading p-values from {pvalues_path} and activation data from {activation_path}")
+        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=infer_delimiter(layout_filepath))
+        pvalues_df_tf = pd.read_parquet(pvalues_path, use_threads=True, columns=[tf_name])
+        activation_tf = pd.read_parquet(activation_path, use_threads=True, columns=[tf_name])
 
-        # pvalues_df = pd.read_csv(pvalues_path, index_col=0)
-        # activation_df = pd.read_csv(activation_path, index_col=0)
-        pvalues_df = pd.read_parquet(pvalues_path, use_threads=True)
-        activation_df = pd.read_parquet(activation_path, use_threads=True)
+        corrected_pvalues, reject, p_value_thresholds = bh_fdr_correction(pvalues_df_tf, fdr_level)
 
-        current_app.logger.info(f"Re-running FDR correction for analysis_id={analysis_id} with fdr_level={fdr_level}")
+        final_output = pd.DataFrame(0, index=reject.index, columns=reject.columns)
+        final_output[reject] = activation_tf[reject]
+        final_output[pvalues_df_tf.isna()] = np.nan
+        final_output = final_output.astype("Int64")
 
-        # Perform FDR correction
-        run_bh_and_save_files(
-            user_id=current_user.id,
-            analysis_id=analysis_id,
-            p_values_df=pvalues_df,
-            activation_df=activation_df,
-            result_path=analysis.get("results_path"),
-            fdr_level=fdr_level,
-            update_analysis_status_fn=update_analysis_status
+        plot_df = plot_df.merge(final_output.astype(object), left_index=True, right_index=True)
+        traces, title, x_col, y_col = generate_colored_traces(
+            plot_df=plot_df,
+            plot_type=plot_type,
+            tf_activity=tf_name,
         )
-        flash("FDR correction re-run successfully. Refresh the tab to see updated data", "success")
+        layout = {
+            "title": title,
+            "xaxis": {"title": x_col},
+            "yaxis": {"title": y_col}
+        }
+        graph_data = {
+            "data": traces,
+            "layout": layout,
+            "fdr_level": fdr_level,
+            "p_value_threshold": p_value_thresholds.iloc[0]
+        }
+        return jsonify(graph_data), 200
 
-        return jsonify({"message": "FDR correction re-run successfully. Refresh the tab to see updated data"}), 200
     except Exception as e:
         current_app.logger.error(
             f"Error re-running FDR correction for analysis_id={analysis_id}: {e}",
@@ -1047,14 +976,36 @@ def re_run_fdr_correction(analysis_id):
         return jsonify({"error": "Internal server error."}), 500
 
 
-@main_bp.route("/analysis/change-p-value-threshold/<analysis_id>", methods=["POST"])
+def estimate_fdr_for_gene(p_values_df, gene_name, p_value_cutoff):
+    if gene_name not in p_values_df.columns:
+        return np.nan
+
+    p_gene = p_values_df[[gene_name]].dropna()
+    m = p_gene.shape[0]  # Total tests for this gene
+    if m == 0:
+        return np.nan
+
+    discoveries = (p_gene < p_value_cutoff).sum().iloc[0]
+
+    if discoveries > 0:
+        fdr = (p_value_cutoff * m) / discoveries
+        return fdr
+    else:
+        return np.nan  # Or 0.0 if you prefer
+
+
+@main_bp.route("/analysis/change-pvalue-threshold-tf/<analysis_id>", methods=["POST"])
 @login_required
-def change_p_value_threshold(analysis_id):
+def change_pvalue_threshold_tf(analysis_id):
     try:
-        new_p_threshold = float(request.json.get("p_value_threshold"))
         all_users_data = get_all_users_data()
         user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
         analysis = find_analysis_by_id(user_analyses, analysis_id)
+
+        fdr_level = float(request.json.get("fdr_level"))
+        pvalue_threshold = float(request.json.get("pvalue_threshold"))
+        tf_name = request.json.get("tf_name").strip()
+        plot_type = request.json.get("plot_type").strip()
 
         if not analysis:
             current_app.logger.error(f"Analysis not found: analysis_id={analysis_id}")
@@ -1064,75 +1015,56 @@ def change_p_value_threshold(analysis_id):
             return jsonify({"error": "Analysis is not completed yet."}), 400
 
         pvalues_path = analysis.get("pvalues_path")
-        bh_reject_path = analysis.get("bh_reject_path")
+        layout_filepath = analysis.get("inputs").get("layout").get("layout_filepath")
         activation_path = analysis.get("activation_path")
-        p_value_threshold_path = analysis.get("p_val_threshold_path")
 
         if not os.path.exists(pvalues_path):
             current_app.logger.error(f"P-values file '{pvalues_path}' not found for analysis_id '{analysis_id}'.")
-            return jsonify({"error": "P-values file not found. Cannot change p-value threshold."}), 404
-        if not os.path.exists(bh_reject_path):
-            current_app.logger.error(f"Activation file '{bh_reject_path}' not found for analysis_id '{analysis_id}'.")
-            return jsonify({"error": "Activation file not found. Cannot change p-value threshold."}), 404
+            return jsonify({"error": "P-values file not found. Cannot re-run FDR correction."}), 404
+        if not os.path.exists(layout_filepath):
+            current_app.logger.error(f"Layout file '{layout_filepath}' not found for analysis_id '{analysis_id}'.")
+            return jsonify({"error": "Layout file not found. Cannot re-run FDR correction."}), 404
         if not os.path.exists(activation_path):
             current_app.logger.error(f"Activation file '{activation_path}' not found for analysis_id '{analysis_id}'.")
-            return jsonify({"error": "Activation file not found. Cannot change p-value threshold."}), 404
-        if not os.path.exists(p_value_threshold_path):
-            current_app.logger.error(f"P-value threshold file '{p_value_threshold_path}' not found for analysis_id '{analysis_id}'.")
-            return jsonify({"error": "P-value threshold file not found. Cannot change p-value threshold."}), 404
+            return jsonify({"error": "Activation file not found. Cannot re-run FDR correction."}), 404
 
-        # pvalues_df = pd.read_csv(pvalues_path, index_col=0)
-        # activation_df = pd.read_csv(activation_path, index_col=0)
-        # p_value_threshold_df = pd.read_csv(p_value_threshold_path, index_col=0)
+        plot_df = pd.read_csv(layout_filepath, index_col=0, sep=infer_delimiter(layout_filepath))
         pvalues_df = pd.read_parquet(pvalues_path, use_threads=True)
-        activation_df = pd.read_parquet(activation_path, use_threads=True)
-        p_value_threshold_df = pd.read_parquet(p_value_threshold_path, use_threads=True)
+        activation_tf = pd.read_parquet(activation_path, use_threads=True, columns=[tf_name])
+        fdr = estimate_fdr_for_gene(pvalues_df, tf_name, pvalue_threshold)
 
+        pvalues_df_tf = pvalues_df[[tf_name]].dropna()
+        reject_mask = pvalues_df_tf < pvalue_threshold
+        reject = reject_mask.where(pvalues_df_tf.notna())
+        reject = reject.astype("boolean")
 
-        # Count for each TF how many cells in pvalues_df have p-values less than the new threshold
-        discoveries = (pvalues_df < new_p_threshold).sum()
+        final_output = pd.DataFrame(0, index=reject.index, columns=reject.columns)
+        final_output[reject] = activation_tf[reject]
+        final_output[pvalues_df_tf.isna()] = np.nan
+        final_output = final_output.astype("Int64")
 
-        # Total number of valid tests for each TF
-        total_tests = pvalues_df.notna().sum()
-        fdr = (new_p_threshold * total_tests) / discoveries
-        fdr = fdr.replace([np.inf, -np.inf], 0).fillna(0)  # Handle division by zero or NaN results
-
-        p_value_threshold_df["p_thresholds"] = new_p_threshold
-        p_value_threshold_df["fdr"] = fdr
-
-        reject_mask = pvalues_df < new_p_threshold
-        reject_df = reject_mask.where(pvalues_df.notna())
-        reject_df = reject_df.astype("boolean")
-        tf_counts = reject_df.sum().sort_values(ascending=False)
-        tf_counts = tf_counts[tf_counts > 0]  # Keep only TFs with at least one rejection
-
-        final_output = pd.DataFrame(0, index=reject_df.index, columns=reject_df.columns)
-        # Where the rejection is True, fill in the direction from activation_df
-        final_output[reject_df] = activation_df[reject_df]
-
-        # Propagate NaNs for cells/TFs where analysis couldn't be run
-        final_output[pvalues_df.isna()] = np.nan
-        final_output = final_output.astype("Int64")  # Use a nullable integer type
-        # final_output.to_csv(bh_reject_path, index=True)
-        final_output.to_parquet(bh_reject_path)
-
-        print(f"Saving p-value thresholds to {p_value_threshold_path}")
-        p_value_threshold_df.to_csv(p_value_threshold_path, index=True, index_label="TF")
-
-        update_analysis_status(
-            user_id=current_user.id,
-            analysis_id=analysis_id,
-            status="Completed",
-            tfs=tf_counts.index.tolist() if (tf_counts.index.tolist()) else [],
-            p_value_threshold = new_p_threshold
+        plot_df = plot_df.merge(final_output.astype(object), left_index=True, right_index=True)
+        traces, title, x_col, y_col = generate_colored_traces(
+            plot_df=plot_df,
+            plot_type=plot_type,
+            tf_activity=tf_name,
         )
-        flash("P-Value threshold changed successfully. Refresh the tab to see updated data", "success")
-
-        return jsonify({"message": "P-Value threshold changed successfully. Refresh the tab to see updated data"}), 200
+        layout = {
+            "title": title,
+            "xaxis": {"title": x_col},
+            "yaxis": {"title": y_col}
+        }
+        graph_data = {
+            "data": traces,
+            "layout": layout,
+            "fdr_level": fdr_level,
+            "p_value_threshold": pvalue_threshold
+        }
+        return jsonify(graph_data), 200
 
     except Exception as e:
         current_app.logger.error(
-            f"Error changing p-value threshold for analysis_id={analysis_id}: {e}",
+            f"Error re-running FDR correction for analysis_id={analysis_id}: {e}",
             exc_info=True,
         )
         return jsonify({"error": "Internal server error."}), 500

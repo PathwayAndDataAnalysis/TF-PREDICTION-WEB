@@ -26,7 +26,7 @@ const fdrLevelDiv = document.getElementById("fdr-level-div");
 const fdrLevel = document.getElementById("fdr-level");
 const pValueThresholdDiv = document.getElementById("p-val-threshold-div");
 const pValueThreshold = document.getElementById("p-val-threshold");
-const reRunFDRCorrectionButton = document.getElementById("re-run-fdr-correction");
+const changeFDRCorrectionButton = document.getElementById("change-fdr-correction");
 const changePValueThreshold = document.getElementById("change-p-value-threshold");
 const moreInfoBtn = document.getElementById("more-info-btn");
 const modal = document.getElementById("more-info-modal");
@@ -227,12 +227,12 @@ metadataColNameSelect.addEventListener("change", function () {
 
 tfNameSelect.addEventListener("change", function () {
 	if (this.value !== "select_tf"){
-		const apiUrl = `/analysis/tf-activity/${window.analysis.id}`;
+		const apiUrl = `/analysis/change-fdr-tf/${window.analysis.id}`;
 
 		updatePlotData(
 			apiUrl,
 			"POST",
-			{ selected_tf: this.value, plot_type: plotTypeSelect.value }
+			{ tf_name: this.value, plot_type: plotTypeSelect.value }
 		).then(() => {
 			console.log("TF activity plot loaded successfully.");
 		})
@@ -246,13 +246,14 @@ tfNameSelect.addEventListener("change", function () {
 tfManualEntryInput.addEventListener("keypress", function (event) {
 	if (event.key === "Enter") {
 		let tf_name = this.value.trim().toUpperCase();
+
 		if (tf_name) {
-			const apiUrl = `/analysis/tf-activity/${window.analysis.id}`;
+			const apiUrl = `/analysis/change-fdr-tf/${window.analysis.id}`;
 
 			updatePlotData(
 				apiUrl,
 				"POST",
-				{selected_tf: tf_name, plot_type: plotTypeSelect.value}
+				{ tf_name: tf_name, plot_type: plotTypeSelect.value }
 			).then(() => {
 				console.log("TF activity plot loaded successfully.");
 			})
@@ -316,26 +317,22 @@ if (showLegendCheckbox) {
 	});
 }
 
-reRunFDRCorrectionButton.addEventListener("click", async function (e) {
+changeFDRCorrectionButton.addEventListener("click", async function (e) {
 	try {
-		plotLoadingSpinner.style.display = "block";
-		const response = await fetch(
-			`/analysis/re-run-fdr-correction/${window.analysis.id}`,
-			{
-				method: "POST",
-				headers: {"Content-Type": "application/json"},
-				body: JSON.stringify({fdr_level: fdrLevel.value})
-			}
-		);
-		if (!response.ok) {
-			alert(
-				`Failed to re-run FDR correction. Server responded with status ${response.status}.`
-			)
-		}else{
-			alert("FDR correction re-run successfully. Reload the page to see the updated plot.");
-			window.location.reload();
-		}
-		plotLoadingSpinner.style.display = "none";
+		const apiUrl = `/analysis/change-fdr-tf/${window.analysis.id}`;
+		const tf_name = tfNameSelect.value !== "select_tf" ? tfNameSelect.value : tfManualEntryInput.value.trim().toUpperCase();
+
+		updatePlotData(
+			apiUrl,
+			"POST",
+			{ fdr_level: fdrLevel.value, tf_name: tf_name, plot_type: plotTypeSelect.value }
+		).then(() => {
+			console.log("TF activity plot loaded successfully.");
+		})
+		.catch((err) => {
+			console.error("Failed to load plot:", err);
+			alert("Failed to load plot. Please try again later.");
+		});
 	}
 	catch (error) {
 		console.error("Error re-running FDR correction:", error);
@@ -345,28 +342,24 @@ reRunFDRCorrectionButton.addEventListener("click", async function (e) {
 
 changePValueThreshold.addEventListener("click", async function (e) {
 	try {
-		plotLoadingSpinner.style.display = "block";
-		const response = await fetch(
-			`/analysis/change-p-value-threshold/${window.analysis.id}`,
-			{
-				method: "POST",
-				headers: {"Content-Type": "application/json"},
-				body: JSON.stringify({p_value_threshold: pValueThreshold.value})
-			}
-		);
-		if (!response.ok) {
-			alert(
-				`Failed to change p-value threshold. Server responded with status ${response.status}.`
-			)
-		}else{
-			alert("P-value threshold changed successfully. Reload the page to see the updated plot.");
-			window.location.reload();
-		}
-		plotLoadingSpinner.style.display = "none";
+		const apiUrl = `/analysis/change-pvalue-threshold-tf/${window.analysis.id}`;
+		const tf_name = tfNameSelect.value !== "select_tf" ? tfNameSelect.value : tfManualEntryInput.value.trim().toUpperCase();
+
+		updatePlotData(
+			apiUrl,
+			"POST",
+			{ pvalue_threshold: pValueThreshold.value, fdr_level: fdrLevel.value, tf_name: tf_name, plot_type: plotTypeSelect.value }
+		).then(() => {
+			console.log("TF activity plot loaded successfully.");
+		})
+		.catch((err) => {
+			console.error("Failed to load plot:", err);
+			alert("Failed to load plot. Please try again later.");
+		});
 	}
 	catch (error) {
-		console.error("Error changing p-value threshold:", error);
-		alert("Failed to change p-value threshold. Please try again later.");
+		console.error("Error changing pvalue threshold.", error);
+		alert("Failed to changing pvalue threshold. Please try again later.");
 	}
 });
 
