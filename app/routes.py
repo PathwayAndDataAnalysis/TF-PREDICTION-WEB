@@ -1,10 +1,10 @@
+import io
 import os
 import uuid
 from datetime import datetime, timezone  # For timestamps
 
 import numpy as np
 import pandas as pd
-import scanpy as sc
 from flask import (
     Blueprint,
     render_template,
@@ -13,12 +13,11 @@ from flask import (
     url_for,
     flash,
     current_app,
-    jsonify, send_from_directory,
+    jsonify, send_from_directory, Response, send_file,
 )
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-import psutil
 import shutil
 from werkzeug.exceptions import RequestEntityTooLarge
 from . import (
@@ -832,10 +831,60 @@ def change_pvalue_threshold_tf(analysis_id):
         return jsonify({"error": "Internal server error."}), 500
 
 
-@main_bp.route("/analysis/download/<analysis_id>", methods=["POST"])
+@main_bp.route("/analysis/download_analysis/<analysis_id>", methods=["POST"])
 @login_required
 def download_analysis(analysis_id):
-    return jsonify("This feature is not implemented yet."), 501
+    all_users_data = get_all_users_data()
+    user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
+    analysis_to_download = find_analysis_by_id(user_analyses, analysis_id)
+
+    if not analysis_to_download:
+        flash("Analysis not found.", "error")
+        return redirect(url_for("main_routes.index"))
+
+    results_path = analysis_to_download.get("results_path")
+    if not results_path or not os.path.exists(results_path):
+        flash("Analysis results not found on disk.", "error")
+        return redirect(url_for("main_routes.index"))
+
+    try:
+        pvalues_path = analysis_to_download.get("pvalues_path")
+        activation_path = analysis_to_download.get("activation_path")
+
+        if not pvalues_path or not os.path.exists(pvalues_path):
+            flash("P-values file not found for this analysis.", "error")
+            return redirect(url_for("main_routes.index"))
+        if not activation_path or not os.path.exists(activation_path):
+            flash("Activation file not found for this analysis.", "error")
+            return redirect(url_for("main_routes.index"))
+
+        pvalues_df = pd.read_parquet(pvalues_path, use_threads=True)
+        activation_df = pd.read_parquet(activation_path, use_threads=True)
+
+        combined_df = pvalues_df.multiply(activation_df, fill_value=0)
+
+        # # Multiply pvalues_df and activation_df cell by cell and don't do anything for cell if it is NaN
+        # combined_df = pvalues_df.multiply(activation_df, fill_value=0)
+        # combined_df = combined_df.fillna(0)  # Fill NaN with 0 for multiplication
+
+        # --- Create CSV in an in-memory buffer ---
+        csv_buffer = io.StringIO()
+        combined_df.to_csv(csv_buffer, index=True)
+        csv_buffer.seek(0)
+
+        # --- Create and send the Flask Response ---
+        safe_analysis_name = "".join(c for c in analysis_to_download['name'] if c.isalnum() or c in (' ', '_')).rstrip()
+        download_filename = f"TF_Activity_{safe_analysis_name}.csv"
+        return Response(
+            csv_buffer,
+            mimetype="text/csv",
+            headers={"Content-Disposition": f"attachment;filename={download_filename}"}
+        )
+
+    except Exception as e:
+        current_app.logger.error(f"Error downloading result for analysis {analysis_id}: {e}")
+        flash(f"Error downloading result for analysis {analysis_id}: {e}", "error")
+        return redirect(url_for("main_routes.index"))
 
 
 @main_bp.route("/analysis/delete/<analysis_id>", methods=["POST"])

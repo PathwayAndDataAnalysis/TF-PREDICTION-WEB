@@ -248,10 +248,14 @@
                                 Delete
                             </button>
                         </form>
-                        <a href="{{ url_for('main_routes.download_analysis', analysis_id=analysis.id) }}"
-                            class="bg-blue-500 hover:bg-blue-700 text-white text-xs font-semibold py-2 px-3 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out text-center">
-                            Download Analysis
-                        </a>
+
+                        <form method="POST" action="{{ url_for('main_routes.download_analysis', analysis_id=analysis.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}">
+                            <button type="submit"
+                                class="w-full bg-green-500 hover:bg-green-700 text-white text-xs font-semibold py-2 px-3 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">
+                                Download Results
+                            </button>
+                        </form>
                     </div>
                 </div>
                 {% endfor %}
