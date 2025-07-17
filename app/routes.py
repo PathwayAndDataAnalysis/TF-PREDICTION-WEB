@@ -693,7 +693,7 @@ def change_fdr_tf(analysis_id):
         user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
         analysis = find_analysis_by_id(user_analyses, analysis_id)
 
-        fdr_level = float(request.json.get("fdr_level", 0.05))
+        fdr_level = float(request.json.get("fdr_level", 0.1))
         tf_name = request.json.get("tf_name").strip()
         plot_type = request.json.get("plot_type").strip()
 

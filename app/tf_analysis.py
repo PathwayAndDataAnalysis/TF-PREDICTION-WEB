@@ -66,7 +66,7 @@ def _process_single_cell(
 
     # Summarise per TF
     tf_summary = (
-        p.groupby("Regulator")
+        p.groupby("Regulator", observed=True)
         .agg(
             AvailableTargets=("AdjustedRank", lambda x: x.notna().sum()),
             RankMean=("AdjustedRank", "mean"),
@@ -128,12 +128,27 @@ def run_tf_analysis(user_id, analysis_id, analysis_data, adata, update_analysis_
         # ───── Load TF‑target priors ──────────────────────────────────────────────
         print("Loading TF-target priors...")
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        priors = pd.read_csv(os.path.join(script_dir, "..", "prior_data", "causal_priors.tsv"), sep="\t")
-        priors = priors[priors["TargetGene"].notna()]
-        expected_cols = {"Regulator", "TargetGene", "RegulatoryEffect"}
-        if not expected_cols.issubset(priors.columns):
-            raise ValueError(f"Prior file must contain columns {expected_cols}")
+        causal_priors_path = os.path.join(script_dir, "..", "prior_data", "causal_priors.tsv")
 
+        effect_map = {"upregulates-expression": 1, "downregulates-expression": 0}
+        col_names = ["Regulator", "RegulatoryEffect", "TargetGene"]
+        priors = (
+            pd.read_csv(
+                causal_priors_path,
+                sep="\t",
+                header=None,
+                usecols=[0, 1, 2],
+                names=col_names,
+            )
+            .assign(RegulatoryEffect=lambda df: df["RegulatoryEffect"].map(effect_map))
+            .dropna(subset=["RegulatoryEffect"])
+            .astype({
+                "RegulatoryEffect": "int8",
+                "Regulator": "category",
+                "TargetGene": "category"
+            })
+            .reset_index(drop=True)
+        )
 
         # ───── Parallel processing of cells ───────────────────────────────────────
         current_app.logger.info(f"[TF_ANALYSIS] Starting TF analysis for user '{user_id}', analysis '{analysis_id}'.")

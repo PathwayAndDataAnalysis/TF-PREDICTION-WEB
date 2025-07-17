@@ -44,7 +44,7 @@ def run_bh_correction_and_save_tfs(
         activation_path: str = None,
         z_scores_path: str = None,
 ):
-    fdr_level: float = 0.05
+    fdr_level: float = 0.1
     _, reject, _ = bh_fdr_correction(p_value_df=p_values_df, alpha=fdr_level)
     tf_counts = reject.sum().sort_values(ascending=False)
     tf_counts = tf_counts[tf_counts > 0]
