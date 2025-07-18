@@ -3,6 +3,9 @@ import pandas as pd
 import scanpy as sc
 import psutil
 from flask import current_app
+from numba.core.typing.dictdecl import infer
+
+from app.utils import infer_delimiter
 
 
 def validate_input_files(analysis_data):
@@ -67,7 +70,8 @@ def run_umap_pipeline(
 
         else:
             current_app.logger.info(f"[UMAP] Loading gene_exp file: {gene_expr['gene_exp_filepath']}")
-            gene_exp = pd.read_csv(gene_expr['gene_exp_filepath'], index_col=0)
+            gene_exp = pd.read_csv(gene_expr['gene_exp_filepath'], index_col=0, sep=infer_delimiter(gene_expr['gene_exp_filepath']))
+            gene_exp = gene_exp.apply(pd.to_numeric, errors='coerce')
 
             # A raw count matrix should not have NaNs. If it does, it's a missing value. Fill with 0.
             if gene_exp.isnull().values.any():
