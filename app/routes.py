@@ -384,6 +384,7 @@ def create_analysis():
         have_h5ad = request.form.get("have_h5ad") == "on"
         selected_h5ad_file = request.form.get("selected_h5ad_file")
         gene_exp_file = request.form.get("gene_exp_file")
+        prior_data_file = request.form.get("prior_data_file")
         metadata_file = request.form.get("metadata_file")
         species = request.form.get("species") if request.form.get("species") and request.form.get("species") != "select-species" else "auto"
 
@@ -480,6 +481,10 @@ def create_analysis():
                         if not have_h5ad and metadata_file and metadata_file != "select-metadata-file"
                         else {}
                     ),
+                },
+                "prior_data" : {
+                    "prior_data_filepath" : get_file_path(prior_data_file, current_user.id) if prior_data_file != "use-default-prior-data" else "Default",
+                    "min_number_of_targets": request.form.get("min_number_of_targets", type=int, default=3),
                 },
                 "data_filtering": data_filtering,
                 "layout": {

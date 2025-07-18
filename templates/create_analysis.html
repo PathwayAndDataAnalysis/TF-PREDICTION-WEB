@@ -51,7 +51,7 @@
                         class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
                         <option value="select-gene-exp-file">-- Select a gene expression file --</option>
                         {% for file_info in user_files %}
-                            {% if not file_info.filename.endswith('.h5ad') %}
+                            {% if file_info.file_type == 'Gene Expression' %}
                             <option value="{{ file_info.filename }}">
                                 {{ file_info.original_filename | default(file_info.filename, true) }}
                             </option>
@@ -59,6 +59,7 @@
                         {% endfor %}
                     </select>
                 </div>
+
                 <div>
                     <label for="species" class="block text-gray-700 text-sm font-semibold mb-1">Select Species:</label>
                     <select id="species" name="species"
@@ -68,13 +69,14 @@
                         <option value="mouse">Mouse</option>
                     </select>
                 </div>
+
                 <div>
                     <label for="metadata_file" class="block text-gray-700 text-sm font-semibold mb-1">Select Metadata File (Optional):</label>
                     <select id="metadata_file" name="metadata_file"
                         class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
                         <option value="select-metadata-file">-- Select a metadata file --</option>
                         {% for file_info in user_files %}
-                            {% if not file_info.filename.endswith('.h5ad') %}
+                            {% if file_info.file_type == 'Metadata' %}
                             <option value="{{ file_info.filename }}">
                                 {{ file_info.original_filename | default(file_info.filename, true) }}
                             </option>
@@ -111,6 +113,39 @@
             </div>
         </div>
 
+
+        <!-- Prior Data Section -->
+        <div class="p-8 rounded-lg mb-4 border border-gray-200">
+            <p class="font-semibold text-gray-700 mb-3 text-md">Prior Data:</p>
+            <p class="text-xs text-gray-500 mb-4">You can select your own prior data file, or you can use default prior data.</p>
+
+            <div>
+                <label for="prior_data_file" class="block text-gray-700 text-sm font-semibold mb-1">Select Prior Data File:</label>
+                <select id="prior_data_file" name="prior_data_file"
+                    class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
+                    <option value="use-default-prior-data">Use Default Curated Database</option>
+                    {% for file_info in user_files %}
+                        {% if file_info.file_type == 'Prior Data' %}
+                            <option value="{{ file_info.filename }}">
+                                {{ file_info.original_filename | default(file_info.filename, true) }}
+                            </option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="mt-4">
+                <label for="min_number_of_targets" class="block text-sm text-gray-700 font-semibold mb-1">Minimum Targets per TF:</label>
+                <input type="number" name="min_number_of_targets" id="min_number_of_targets" value="3" min="1"
+                    class="w-full p-2 border border-gray-300 rounded-md text-sm" />
+                <p class="text-xs text-gray-500 mt-1">
+                    Only consider TFs that regulate at least this many target genes present in your expression data. Helps remove unreliable TFs.
+                </p>
+            </div>
+        </div>
+
+
+        <!-- Data Filtering Section -->
         <div class="p-8 rounded-lg mb-4 border border-gray-200">
             <p class="font-semibold text-gray-700 mb-3 text-md">Data Filtering:</p>
             <p class="text-xs text-gray-500 mb-4">Check a box to apply the corresponding filter. The plots above can help you choose appropriate values. (Select a file to see plots)</p>
@@ -182,7 +217,7 @@
                     class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline bg-white">
                     <option value="">-- Select a layout file --</option>
                     {% for file_info in user_files %}
-                        {% if not file_info.filename.endswith('.h5ad') %}
+                        {% if file_info.file_type == '2D Layout' %}
                             <option value="{{ file_info.filename }}">
                                 {{ file_info.original_filename | default(file_info.filename, true) }}
                             </option>

@@ -10,8 +10,8 @@ from tqdm.auto import tqdm
 
 from app.benjamini_hotchberg import run_bh_correction_and_save_tfs
 
-# CORES_USED = 1 # For debugging, use a single core
-CORES_USED = max(1, int(os.cpu_count() * 0.8))  # Use 80% of available cores
+CORES_USED = 1 # For debugging, use a single core
+# CORES_USED = max(1, int(os.cpu_count() * 0.8))  # Use 80% of available cores
 
 
 def std_dev_mean_norm_rank(n_population: int, k_sample: int) -> float:
@@ -128,7 +128,11 @@ def run_tf_analysis(user_id, analysis_id, analysis_data, adata, update_analysis_
         # ───── Load TF‑target priors ──────────────────────────────────────────────
         print("Loading TF-target priors...")
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        causal_priors_path = os.path.join(script_dir, "..", "prior_data", "causal_priors.tsv")
+        causal_priors_path = (
+            os.path.join(script_dir, "..", "prior_data", "causal_priors.tsv")
+            if analysis_data.get("inputs", {}).get("prior_data", {}).get("prior_data_filepath") == "Default"
+            else analysis_data.get("inputs", {}).get("prior_data", {}).get("prior_data_filepath")
+        )
 
         effect_map = {"upregulates-expression": 1, "downregulates-expression": 0}
         col_names = ["Regulator", "RegulatoryEffect", "TargetGene"]
@@ -149,6 +153,17 @@ def run_tf_analysis(user_id, analysis_id, analysis_data, adata, update_analysis_
             })
             .reset_index(drop=True)
         )
+        # TODO: Add minium number of targets per regulator code
+        min_number_of_targets = analysis_data.get("inputs", {}).get("prior_data", {}).get("min_number_of_targets", 3)
+        # Only keep regulators with at least `min_number_of_targets` targets
+        priors = priors.groupby("Regulator").filter(lambda x: len(x) >= min_number_of_targets)
+        # Only keep the rows of priors that have targets in the z_df (z_df.columns)
+        priors = priors[priors["TargetGene"].isin(z_df.columns)]
+        priors_group = priors.groupby("Regulator", observed=True).agg({"RegulatoryEffect": list, "TargetGene": list})
+        # Now remove the rows the length of the lists in RegulatoryEffect is less than min_number_of_targets
+        priors_group = priors_group[priors_group["RegulatoryEffect"].apply(len) >= min_number_of_targets]
+        # Keep only regulators in priors that is in priors_group.index
+        priors = priors[priors["Regulator"].isin(priors_group.index)]
 
         # ───── Parallel processing of cells ───────────────────────────────────────
         current_app.logger.info(f"[TF_ANALYSIS] Starting TF analysis for user '{user_id}', analysis '{analysis_id}'.")
