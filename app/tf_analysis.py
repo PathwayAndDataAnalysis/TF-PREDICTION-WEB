@@ -57,12 +57,12 @@ def _process_single_cell(
     p = p[p["Rank"].notna()]
 
     # Invert rank for repressors (RegulatoryEffect == 0)
-    max_rank_val = (n_genes - 0.5) / n_genes
+    # max_rank_val = (n_genes - 0.5) / n_genes
     p["AdjustedRank"] = np.where(
         p["RegulatoryEffect"].eq(0),
-        max_rank_val - p["Rank"],
+        1 - p["Rank"],
         p["Rank"],
-    )  # AdjustedRank is max_rank_val - Rank for repressors
+    )  # AdjustedRank is (max_rank_val - Rank) for repressors Note: (1 - Rank)
 
     # Summarise per TF
     tf_summary = (
@@ -85,7 +85,7 @@ def _process_single_cell(
     tf_summary["Sigma_n_k"] = tf_summary["AvailableTargets"].apply(
         lambda k: std_dev_mean_norm_rank(n_genes, k)
     )
-    tf_summary["Z"] = (tf_summary["RankMean"] - 0.5) / tf_summary["Sigma_n_k"].replace(0, np.nan)
+    tf_summary["Z"] = (tf_summary["RankMean"] - 0.5) / (tf_summary["Sigma_n_k"].replace(0, np.nan))
     tf_summary["P_two_tailed"] = np.where(
         tf_summary["RankMean"] < 0.5,
         2 * norm.cdf(tf_summary["Z"]),
@@ -98,7 +98,6 @@ def _process_single_cell(
     directions = tf_summary["ActivationDir"].tolist()
 
     return cell_name, regulators, p_values, directions
-
 
 def run_tf_analysis(user_id, analysis_id, analysis_data, adata, update_analysis_status_fn):
     try:
@@ -193,17 +192,18 @@ def run_tf_analysis(user_id, analysis_id, analysis_data, adata, update_analysis_
         print("\nAggregating results...")
         p_value_records = []
         activation_records = []
+
         # 1. Unpack results into flat lists of records
         for cell_name, regulators, p_values, directions in tqdm(cell_results_list, desc="Unpacking results"):
             for i, regulator in enumerate(regulators):
                 p_value_records.append({'cell': cell_name, 'regulator': regulator, 'p_value': p_values[i]})
-                activation_records.append(
-                    {'cell': cell_name, 'regulator': regulator, 'direction': directions[i]})
+                activation_records.append({'cell': cell_name, 'regulator': regulator, 'direction': directions[i]})
+
         # 2. Build temporary DataFrames from the lists of records (very fast)
         p_values_temp_df = pd.DataFrame.from_records(p_value_records)
         activation_temp_df = pd.DataFrame.from_records(activation_records)
+
         # 3. Pivot the temporary DataFrames into the desired final shape (cells x regulators)
-        # This is the most efficient way to reshape the data.
         if not p_values_temp_df.empty:
             p_values_df = p_values_temp_df.pivot(index='cell', columns='regulator', values='p_value')
             activation_df = activation_temp_df.pivot(index='cell', columns='regulator', values='direction')
