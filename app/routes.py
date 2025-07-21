@@ -868,21 +868,17 @@ def download_analysis(analysis_id):
 
         combined_df = pvalues_df.multiply(activation_df, fill_value=0)
 
-        # # Multiply pvalues_df and activation_df cell by cell and don't do anything for cell if it is NaN
-        # combined_df = pvalues_df.multiply(activation_df, fill_value=0)
-        # combined_df = combined_df.fillna(0)  # Fill NaN with 0 for multiplication
-
-        # --- Create CSV in an in-memory buffer ---
-        csv_buffer = io.StringIO()
-        combined_df.to_csv(csv_buffer, index=True)
-        csv_buffer.seek(0)
+        # --- Create TSV in an in-memory buffer ---
+        tsv_buffer = io.StringIO()
+        combined_df.to_csv(tsv_buffer, index=True, sep='\t')
+        tsv_buffer.seek(0)
 
         # --- Create and send the Flask Response ---
         safe_analysis_name = "".join(c for c in analysis_to_download['name'] if c.isalnum() or c in (' ', '_')).rstrip()
-        download_filename = f"TF_Activity_{safe_analysis_name}.csv"
+        download_filename = f"TF_Activity_{safe_analysis_name}.tsv"
         return Response(
-            csv_buffer,
-            mimetype="text/csv",
+            tsv_buffer,
+            mimetype="text/tab-separated-values",
             headers={"Content-Disposition": f"attachment;filename={download_filename}"}
         )
 
