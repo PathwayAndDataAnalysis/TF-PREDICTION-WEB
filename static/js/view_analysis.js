@@ -1,6 +1,6 @@
 console.log("Analysis object:", window.analysis);
 
-const defaultPointSize = 4;
+const defaultPointSize = 6;
 const defaultOpacity = 0.5;
 
 // Plot configuration panel logic
@@ -20,12 +20,9 @@ const pointSizeValue = document.getElementById("point-size-value");
 const opacitySlider = document.getElementById("opacity");
 const opacityValue = document.getElementById("opacity-value");
 const showLegendCheckbox = document.getElementById("show-legend");
-const fdrLevelDiv = document.getElementById("fdr-level-div");
 const fdrLevel = document.getElementById("fdr-level");
-const pValueThresholdDiv = document.getElementById("p-val-threshold-div");
 const pValueThreshold = document.getElementById("p-val-threshold");
-const changeFDRCorrectionButton = document.getElementById("change-fdr-correction");
-const changePValueThreshold = document.getElementById("change-p-value-threshold");
+const applyCorrectionBtn = document.getElementById("apply-correction");
 const moreInfoBtn = document.getElementById("more-info-btn");
 const modal = document.getElementById("more-info-modal");
 const closeModalBtn = document.getElementById("close-modal-btn");
@@ -77,6 +74,33 @@ plotTypeSelect.addEventListener("change", function () {
 	});
 });
 
+colorScaleSelectionDiv.addEventListener("change", function (e) {
+	console.log("ColorScaleSelectionDiv changed successfully.");
+	Plotly.restyle('scatterPlot', {
+		'marker.colorscale': [e.target.value]
+    }, [0]);
+});
+
+if (pointSizeSlider && pointSizeValue) {
+	pointSizeSlider.addEventListener("input", function (e) {
+		Plotly.restyle("scatterPlot", { "marker.size": Number(e.target.value) });
+		pointSizeValue.textContent = e.target.value;
+	});
+}
+
+if (opacitySlider && opacityValue) {
+	opacitySlider.addEventListener("input", function (e) {
+		Plotly.restyle("scatterPlot", { "marker.opacity": Number(e.target.value) });
+		opacityValue.textContent = e.target.value;
+	});
+}
+
+if (showLegendCheckbox) {
+	showLegendCheckbox.addEventListener("change", function (e) {
+		Plotly.relayout("scatterPlot", { showlegend: e.target.checked });
+	});
+}
+
 if (colorBySelect) {
 	colorBySelect.addEventListener("change", function () {
 		if (this.value === "tf_activity") {
@@ -84,7 +108,7 @@ if (colorBySelect) {
 			metadataColSelectionDiv.classList.add("hidden");
 			geneEntryDiv.classList.add("hidden");
 			colorScaleSelectionDiv.classList.add("hidden");
-			fdrLevelDiv.classList.remove("hidden");
+			// fdrLevelDiv.classList.remove("hidden");
 			changeThresholdTypeDiv.classList.remove("hidden");
 
 			// Clear selections
@@ -96,7 +120,7 @@ if (colorBySelect) {
 			metadataColSelectionDiv.classList.remove("hidden");
 			geneEntryDiv.classList.add("hidden");
 			colorScaleSelectionDiv.classList.add("hidden");
-			fdrLevelDiv.classList.add("hidden");
+			// fdrLevelDiv.classList.add("hidden");
 			changeThresholdTypeDiv.classList.add("hidden");
 
 			// Clear selections
@@ -111,7 +135,7 @@ if (colorBySelect) {
 			colorScaleSelectionDiv.classList.remove("hidden");
 			tfSelectionDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
-			fdrLevelDiv.classList.add("hidden");
+			// fdrLevelDiv.classList.add("hidden");
 			changeThresholdTypeDiv.classList.add("hidden");
 
 			// Clear selections
@@ -125,11 +149,24 @@ if (colorBySelect) {
 			colorScaleSelectionDiv.classList.add("hidden");
 			tfSelectionDiv.classList.add("hidden");
 			metadataColSelectionDiv.classList.add("hidden");
-			fdrLevelDiv.classList.add("hidden");
+			// fdrLevelDiv.classList.add("hidden");
 			changeThresholdTypeDiv.classList.add("hidden");
 		}
 	});
 }
+
+fdrCorrectionRadio.addEventListener("click", function () {
+	if (this.checked) {
+		pValueThreshold.disabled = true;
+		fdrLevel.disabled = false;
+	}
+});
+pValueThresholdRadio.addEventListener("click", function () {
+	if (this.checked) {
+		pValueThreshold.disabled = false;
+		fdrLevel.disabled = true;
+	}
+});
 
 function updatePlot(plot_data){
 	if (plot_data.data && plot_data.layout) {
@@ -213,22 +250,66 @@ metadataColNameSelect.addEventListener("change", function () {
 	}
 });
 
-tfNameSelect.addEventListener("change", function () {
-	if (this.value !== "select_tf"){
-		const apiUrl = `/analysis/change-fdr-tf/${window.analysis.id}`;
+function changeFDRThreshold() {
+	const apiUrl = `/analysis/change-fdr-tf/${window.analysis.id}`;
+
+	updatePlotData(
+		apiUrl,
+		"POST",
+		{
+			fdr_level: (fdrLevel && fdrLevel.value) ? fdrLevel.value : 0.1,
+			tf_name: tfNameSelect.value,
+			plot_type: plotTypeSelect.value
+		}
+	).then(() => {
+		console.log("FDR correction applied successfully.");
+	})
+	.catch((err) => {
+		console.error("Failed to apply FDR correction:", err);
+		alert("Failed to apply FDR correction. Please try again later.");
+	});
+}
+function changePValueThreshold() {
+	if (pValueThreshold.value) {
+		const apiUrl = `/analysis/change-pvalue-threshold-tf/${window.analysis.id}`;
 
 		updatePlotData(
 			apiUrl,
 			"POST",
-			{ tf_name: this.value, plot_type: plotTypeSelect.value }
+			{
+				pvalue_threshold: pValueThreshold.value,
+				tf_name: tfNameSelect.value,
+				plot_type: plotTypeSelect.value
+			}
 		).then(() => {
-			console.log("TF activity plot loaded successfully.");
+			console.log("P-value threshold applied successfully.");
 		})
 		.catch((err) => {
-			console.error("Failed to load plot:", err);
-			alert("Failed to load plot. Please try again later.");
+			console.error("Failed to apply P-value threshold:", err);
+			alert("Failed to apply P-value threshold. Please try again later.");
 		});
+	} else {
+		alert("Please enter a valid P-value threshold.");
 	}
+}
+
+tfNameSelect.addEventListener("change", function () {
+	if (this.value !== "select_tf") {
+		if (fdrCorrectionRadio.checked)
+			changeFDRThreshold();
+		else
+			changePValueThreshold();
+	}
+	else {
+		alert("Please select a valid transcription factor.");
+	}
+});
+
+applyCorrectionBtn.addEventListener("click", function (e) {
+	if (fdrCorrectionRadio.checked)
+		changeFDRThreshold();
+	else
+		changePValueThreshold();
 });
 
 geneEntryInput.addEventListener("keypress", function (event) {
@@ -254,89 +335,6 @@ geneEntryInput.addEventListener("keypress", function (event) {
 	}
 })
 
-colorScaleSelectionDiv.addEventListener("change", function (e) {
-	console.log("ColorScaleSelectionDiv changed successfully.");
-	Plotly.restyle('scatterPlot', {
-		'marker.colorscale': [e.target.value]
-    }, [0]);
-});
-
-if (pointSizeSlider && pointSizeValue) {
-	pointSizeSlider.addEventListener("input", function (e) {
-		Plotly.restyle("scatterPlot", { "marker.size": Number(e.target.value) });
-		pointSizeValue.textContent = e.target.value;
-	});
-}
-
-if (opacitySlider && opacityValue) {
-	opacitySlider.addEventListener("input", function (e) {
-		Plotly.restyle("scatterPlot", { "marker.opacity": Number(e.target.value) });
-		opacityValue.textContent = e.target.value;
-	});
-}
-
-if (showLegendCheckbox) {
-	showLegendCheckbox.addEventListener("change", function (e) {
-		Plotly.relayout("scatterPlot", { showlegend: e.target.checked });
-	});
-}
-
-changeFDRCorrectionButton.addEventListener("click", async function (e) {
-	if (this.value !== "select_tf"){
-		try {
-			const apiUrl = `/analysis/change-fdr-tf/${window.analysis.id}`;
-
-			updatePlotData(
-				apiUrl,
-				"POST",
-				{
-					fdr_level: fdrLevel.value,
-					tf_name: tfNameSelect.value,
-					plot_type: plotTypeSelect.value
-				}
-			).then(() => {
-				console.log("TF activity plot loaded successfully.");
-			})
-			.catch((err) => {
-				console.error("Failed to load plot:", err);
-				alert("Failed to load plot. Please try again later.");
-			});
-		}
-		catch (error) {
-			console.error("Error re-running FDR correction:", error);
-			alert("Failed to re-run FDR correction. Please try again later.");
-		}
-	}
-});
-
-changePValueThreshold.addEventListener("click", async function (e) {
-	if (this.value !== "select_tf") {
-		try {
-			const apiUrl = `/analysis/change-pvalue-threshold-tf/${window.analysis.id}`;
-
-			updatePlotData(
-				apiUrl,
-				"POST",
-				{
-					pvalue_threshold: pValueThreshold.value,
-					tf_name: tfNameSelect.value,
-					plot_type: plotTypeSelect.value
-				}
-			).then(() => {
-				console.log("TF activity plot loaded successfully.");
-			})
-				.catch((err) => {
-					console.error("Failed to load plot:", err);
-					alert("Failed to load plot. Please try again later.");
-				});
-		} catch (error) {
-			console.error("Error changing pvalue threshold.", error);
-			alert("Failed to changing pvalue threshold. Please try again later.");
-		}
-	}
-});
-
-
 if (plotConfigForm) {
 	plotConfigForm.addEventListener("submit", function (event) {
 		event.preventDefault();
@@ -344,9 +342,6 @@ if (plotConfigForm) {
 		const formData = new FormData(this);
 		const config = Object.fromEntries(formData.entries());
 		console.log("Plot configuration updated:", config);
-		// Call a function to re-render the plot with new config
-		// e.g., updateUmapPlot(config);
-		// alert("Plot update functionality not yet implemented.");
 	});
 }
 
@@ -459,21 +454,5 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
     }
-
-	if (fdrCorrectionRadio && pValueThresholdRadio) {
-		fdrCorrectionRadio.addEventListener("change", function () {
-			if (this.checked) {
-				fdrLevelDiv.classList.remove("hidden");
-				pValueThresholdDiv.classList.add("hidden");
-			}
-		});
-
-		pValueThresholdRadio.addEventListener("change", function () {
-			if (this.checked) {
-				fdrLevelDiv.classList.add("hidden");
-				pValueThresholdDiv.classList.remove("hidden");
-			}
-		});
-	}
 
 });
