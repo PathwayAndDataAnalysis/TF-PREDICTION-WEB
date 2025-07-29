@@ -248,6 +248,7 @@ block content %}
                         <label for="change-threshold-type" class="block text-sm text-gray-700 font-medium mb-1">
                             Significance Threshold Type:
                         </label>
+
                         <div class="flex flex-row justify-between space-x-2">
                             <div>
                                 <div class="flex items-center">
@@ -268,13 +269,12 @@ block content %}
                                     min="0.001"
                                     max="0.2"
                                     step="0.001"
-                                    class="p-2 border border-gray-300 rounded-md text-sm w-full mt-1 disabled:bg-gray-200 disabled:text-gray-600"
+                                    class="p-2 border border-gray-300 rounded-md text-xs w-full mt-1 disabled:bg-gray-200 disabled:text-gray-600"
                                     placeholder="e.g., 0.1"
                                 />
                             </div>
 
                             <div class="border-l border-gray-300"></div>
-
                             <div>
                                 <div class="flex items-center">
                                     <input
@@ -291,7 +291,7 @@ block content %}
                                     name="p-val-threshold"
                                     id="p-val-threshold"
                                     max="1.0"
-                                    class="p-2 border border-gray-300 rounded-md text-sm w-full mt-1 disabled:bg-gray-200 disabled:text-gray-600"
+                                    class="p-2 border border-gray-300 rounded-md text-xs w-full mt-1 disabled:bg-gray-200 disabled:text-gray-600"
                                     placeholder="e.g., 0.0015"
                                     disabled
                                 />

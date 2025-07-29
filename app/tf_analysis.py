@@ -41,7 +41,7 @@ def std_dev_mean_norm_rank(n_population: int, k_sample: int) -> float:
 def _process_single_cell(
         cell_name: str, expression_series: pd.Series, priors_df: pd.DataFrame
 ):
-    # Drop genes with all‑nan expression, rank remaining genes
+    # Drop genes with all‑nan expression, rank-remaining genes
     expr = expression_series.dropna().sort_values(ascending=False)
     n_genes = expr.size
 
@@ -91,7 +91,6 @@ def _process_single_cell(
         2 * norm.cdf(tf_summary["Z"]),
         2 * (1 - norm.cdf(tf_summary["Z"])),
     )
-    # tf_summary["P_two_tailed"] = 2 * norm.sf(tf_summary["Z"])
 
     regulators = tf_summary["Regulator"].tolist()
     p_values = tf_summary["P_two_tailed"].tolist()
@@ -99,7 +98,61 @@ def _process_single_cell(
 
     return cell_name, regulators, p_values, directions
 
-def run_tf_analysis(user_id, analysis_id, analysis_data, adata, update_analysis_status_fn):
+
+def _process_single_cell_stouffer(cell_name: str, expression_z_scores: pd.Series, priors_df: pd.DataFrame):
+    priors_group = (
+        priors_df.groupby("Regulator", observed=True)
+        .agg({
+            "TargetGene": list,
+            "RegulatoryEffect": list
+        })
+    )
+
+    valid_z_scores = expression_z_scores.dropna()
+    if valid_z_scores.empty:
+        return cell_name, [], [], []
+
+    # Create a fast lookup map from gene to Z-score for this cell
+    z_score_map = valid_z_scores.to_dict()
+
+    regulators = []
+    p_values = []
+    directions = []
+
+    # Iterate through the pre-grouped priors (much faster than merging)
+    for tf, data in priors_group.iterrows():
+        target_genes = data['TargetGene']
+        effects = data['RegulatoryEffect']
+
+        evidence_z = []
+        for i, gene in enumerate(target_genes):
+            z = z_score_map.get(gene)
+            if z is not None:
+                # If repressor (effect=0), flip the sign.
+                evidence_z.append(-z if effects[i] == 0 else z)
+
+        k = len(evidence_z)
+        # if k < min_targets:  # Enforce min_targets at the cell level (Pass as a function argument if needed)
+        #     continue
+
+        # Calculate Stouffer's Z
+        z_sum = np.sum(evidence_z)
+        stouffer_z = z_sum / np.sqrt(k) if k > 0 else 0
+
+        # Use a two-tailed test for the p-value
+        p_value = 2 * norm.sf(abs(stouffer_z))
+
+        # Direction is the sign of the combined evidence
+        direction = np.sign(stouffer_z)
+
+        regulators.append(tf)
+        p_values.append(p_value)
+        directions.append(direction)
+
+    return cell_name, regulators, p_values, directions
+
+
+def run_tf_analysis(user_id, analysis_id, analysis_data, adata, analysis_method, ignore_zeros, update_analysis_status_fn):
     try:
         update_analysis_status_fn(user_id=user_id, analysis_id=analysis_id, status="Running analysis")
         current_app.logger.info(f"[TF_ANALYSIS] Running analysis for user '{user_id}', analysis data '{analysis_data}'.")
@@ -112,13 +165,19 @@ def run_tf_analysis(user_id, analysis_id, analysis_data, adata, update_analysis_
 
         # ───── Load gene expression data ────────────────────────────────────────
         X = adata.X.toarray() if issparse(adata.X) else adata.X.copy()
-        X[X == 0] = np.nan
-        X[X == 0.0] = np.nan
         print("Calculating Z-scores...")
-        z_mat = zscore(X, axis=0, nan_policy="omit") # across all cells for a single gene (axis=0)
+        if ignore_zeros:
+            current_app.logger.info("[Z-SCORE] Calculating Z-scores based only on non-zero expression values.")
+
+            X[X == 0] = np.nan
+            X[X == 0.0] = np.nan
+            z_mat = zscore(X, axis=0, nan_policy="omit")  # across all cells for a single gene (axis=0)
+        else:
+            current_app.logger.info("[Z-SCORE] Calculating standard Z-scores including zero values.")
+            z_mat = zscore(X, axis=0)
+
         z_df = pd.DataFrame(z_mat, index=adata.obs_names, columns=adata.var_names)
 
-        # Replace the slow .to_csv() with this:
         z_scores_path = os.path.join(analysis_data.get("results_path", ""), "z_scores.parquet")
         print(f"Saving Z-scores to {z_scores_path}...")
         z_df.to_parquet(z_scores_path)
@@ -152,7 +211,6 @@ def run_tf_analysis(user_id, analysis_id, analysis_data, adata, update_analysis_
             })
             .reset_index(drop=True)
         )
-        # TODO: Add minium number of targets per regulator code
         min_number_of_targets = analysis_data.get("inputs", {}).get("prior_data", {}).get("min_number_of_targets", 3)
         # Only keep regulators with at least `min_number_of_targets` targets
         priors = priors.groupby("Regulator").filter(lambda x: len(x) >= min_number_of_targets)
@@ -164,24 +222,53 @@ def run_tf_analysis(user_id, analysis_id, analysis_data, adata, update_analysis_
         # Keep only regulators in priors that is in priors_group.index
         priors = priors[priors["Regulator"].isin(priors_group.index)]
 
+
+        # ───── Decide the analysis method ───────────────────────────────────────
+        if analysis_method == 'ranks_from_zscore':
+            current_app.logger.info("[TF_ANALYSIS] Using Rank-Based method for inference.")
+            process_func = _process_single_cell
+            data_for_processing = z_df
+
+        elif analysis_method == 'stouffers_zscore':
+            current_app.logger.info("[TF_ANALYSIS] Using Stouffer's Z-score method for inference.")
+            process_func = _process_single_cell_stouffer
+            data_for_processing = z_df
+
+        elif analysis_method == 'ranks_from_gene_expression':
+            current_app.logger.info("[TF_ANALYSIS] Using method: Ranks from Gene Expression.")
+            raw_df = pd.DataFrame(X, index=adata.obs_names, columns=adata.var_names)
+
+            rank_input_df = raw_df.copy()
+            rank_input_df[rank_input_df == 0] = np.nan
+
+            ranked_across_cells = rank_input_df.rank(axis=0, na_option='keep')
+            # Normalize ranks
+            ranked_across_cells = (ranked_across_cells - 0.5) / ranked_across_cells.max(axis=0, skipna=True)
+
+            process_func = _process_single_cell
+            data_for_processing = ranked_across_cells
+
+        else:
+            raise ValueError(f"Unknown analysis method: {analysis_method}")
+
         # ───── Parallel processing of cells ───────────────────────────────────────
         current_app.logger.info(f"[TF_ANALYSIS] Starting TF analysis for user '{user_id}', analysis '{analysis_id}'.")
         print(f"Starting TF activity using {CORES_USED if CORES_USED > 0 else 'all available'} cores.")
         tasks = [
-            delayed(_process_single_cell)(
+            delayed(process_func)(
                 cell_name,
-                z_df.loc[cell_name],  # Pass the expression series for the cell
-                priors,  # Pass the (entire) priors DataFrame
+                data_for_processing.loc[cell_name],
+                priors,
             )
-            for cell_name in z_df.index
+            for cell_name in data_for_processing.index
         ]
 
         # `backend="loky"` is robust and default for joblib in many cases, good for cross-platform
         if CORES_USED == 1:  # Useful for debugging
             print("Running sequentially (CORES_USED=1)...")
             cell_results_list = [
-                _process_single_cell(cell_name, z_df.loc[cell_name], priors)
-                for cell_name in tqdm(z_df.index, desc="Processing cells")
+                process_func(cell_name, data_for_processing.loc[cell_name], priors)
+                for cell_name in tqdm(data_for_processing.index, desc="Processing cells")
             ]
         else:
             print(f"Running in parallel with CORES_USED={CORES_USED}...")

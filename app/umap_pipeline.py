@@ -43,7 +43,7 @@ def validate_input_files(analysis_data):
 
 
 def run_umap_pipeline(
-    user_id, analysis_id, analysis_data, have_2d_layout, update_status_fn, run_analysis_fn
+    user_id, analysis_id, analysis_data, have_2d_layout, analysis_method, ignore_zeros, update_status_fn, run_analysis_fn
 ):
     try:
         current_app.logger.info(f"[UMAP] Starting UMAP pipeline for user '{user_id}', analysis '{analysis_id}'.")
@@ -303,6 +303,8 @@ def run_umap_pipeline(
                 analysis_id=analysis_id,
                 analysis_data=analysis_data,
                 adata=adata,
+                analysis_method=analysis_method,
+                ignore_zeros=ignore_zeros,
                 update_analysis_status_fn=update_status_fn,
             )
         except Exception as e:

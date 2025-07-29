@@ -373,7 +373,7 @@ def create_analysis():
             flash("Analysis name too long. Maximum 100 characters.", "error")
             return redirect(url_for("main_routes.create_analysis_page"))
 
-        # Check for existing analysis with same name
+        # Check for existing analysis with the same name
         all_users_data = get_all_users_data()
         user_analyses = all_users_data.get(current_user.id, {}).get("analyses", [])
         if any(a.get("name") == analysis_name for a in user_analyses):
@@ -384,9 +384,10 @@ def create_analysis():
         have_h5ad = request.form.get("have_h5ad") == "on"
         selected_h5ad_file = request.form.get("selected_h5ad_file")
         gene_exp_file = request.form.get("gene_exp_file")
-        prior_data_file = request.form.get("prior_data_file")
-        metadata_file = request.form.get("metadata_file")
         species = request.form.get("species") if request.form.get("species") and request.form.get("species") != "select-species" else "auto"
+        metadata_file = request.form.get("metadata_file")
+        ignore_zeros = request.form.get("ignore_zeros") == "on"
+        prior_data_file = request.form.get("prior_data_file")
 
         # 2D Layout Data
         have_2d_layout = request.form.get("have_2d_layout") == "on"
@@ -481,6 +482,7 @@ def create_analysis():
                         if not have_h5ad and metadata_file and metadata_file != "select-metadata-file"
                         else {}
                     ),
+                    "ignore_zeros": ignore_zeros
                 },
                 "prior_data" : {
                     "prior_data_filepath" : get_file_path(prior_data_file, current_user.id) if prior_data_file != "use-default-prior-data" else "Default",
@@ -507,6 +509,10 @@ def create_analysis():
         current_user_node["analyses"].append(new_analysis)
         save_all_users_data(all_users_data)
 
+        # The selected method for analysis
+        analysis_method = request.form.get("analysis_method")
+        # possible analysis_method: "ranks_from_zscore", "stouffers_zscore", "ranks_from_gene_expression"
+
         # 1. Run UMAP Pipeline in the background to generate 2D layout
         run_in_background(
             run_umap_pipeline,
@@ -514,6 +520,8 @@ def create_analysis():
             analysis_id,
             new_analysis,
             have_2d_layout,
+            analysis_method,
+            ignore_zeros,
             update_status_fn=update_analysis_status,
             run_analysis_fn=run_tf_analysis
         )
